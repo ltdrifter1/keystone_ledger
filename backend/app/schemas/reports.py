@@ -37,6 +37,11 @@ class ReportLine(BaseModel):
     is_bold: bool = False
     is_total: bool = False
     account_id: Optional[int] = None
+    # Working-paper drill metadata
+    drillable: bool = False
+    account_ids: list[int] = Field(default_factory=list)
+    account_type_filter: Optional[str] = None
+    wp_ref: Optional[str] = None  # e.g. A.1, B.3
 
 
 class ReportOut(BaseModel):
@@ -46,6 +51,53 @@ class ReportOut(BaseModel):
     lines: list[ReportLine]
     generated_at: str
     currency: str
+
+
+class DrillRequest(BaseModel):
+    filters: ReportFilter
+    line_code: str
+    account_id: Optional[int] = None
+    account_ids: Optional[list[int]] = None
+    account_type_filter: Optional[str] = None
+
+
+class DrillLine(BaseModel):
+    transaction_id: int
+    txn_date: date
+    description: str
+    entity_id: int
+    entity_code: Optional[str] = None
+    bank_account_name: Optional[str] = None
+    account_id: int
+    account_code: str
+    account_name: str
+    department_id: Optional[int] = None
+    native_amount: Decimal
+    currency: str
+    reporting_amount: Decimal
+    signed_amount: Decimal  # statement presentation sign
+    is_split: bool = False
+    split_memo: Optional[str] = None
+    status: str
+    is_reconciled: bool = False
+
+
+class DrillOut(BaseModel):
+    line_code: str
+    line_label: str
+    wp_ref: Optional[str] = None
+    report_type: str
+    currency: str
+    filters: ReportFilter
+    period_label: str
+    statement_amount: Decimal
+    detail_total: Decimal
+    difference: Decimal
+    is_tied: bool
+    row_count: int
+    lines: list[DrillLine]
+    generated_at: str
+
 
 
 class DashboardKPI(BaseModel):

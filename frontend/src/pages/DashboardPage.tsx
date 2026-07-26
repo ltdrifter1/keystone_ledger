@@ -1,11 +1,22 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { api, type Dashboard } from '../api'
+import { api, type Dashboard, type DrillOut } from '../api'
+import { WorkingPaperDrawer } from '../components/WorkingPaperDrawer'
 import { money } from '../lib/format'
+
+const KPI_DRILL: Record<string, { line_code: string; label: string }> = {
+  revenue: { line_code: 'TOT_REV', label: 'Total Revenue' },
+  expenses: { line_code: 'TOT_EXP', label: 'Total Expenses' },
+  net_income: { line_code: 'NI', label: 'Net Income' },
+}
 
 export function DashboardPage() {
   const [data, setData] = useState<Dashboard | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [drawerOpen, setDrawerOpen] = useState(false)
+  const [drill, setDrill] = useState<DrillOut | null>(null)
+  const [drillLoading, setDrillLoading] = useState(false)
+  const [drillError, setDrillError] = useState<string | null>(null)
 
   useEffect(() => {
     api
@@ -13,6 +24,58 @@ export function DashboardPage() {
       .then(setData)
       .catch((e: Error) => setError(e.message))
   }, [])
+
+  const openKpiDrill = async (key: string) => {
+    const map = KPI_DRILL[key]
+    if (!map) return
+    setDrawerOpen(true)
+    setDrillLoading(true)
+    setDrillError(null)
+    try {
+      // Resolve actual line codes from the live report (TOT_REV / NI naming may vary)
+      const report = await api.report({
+        report_type: 'income_statement',
+        period: 'ytd',
+        year: new Date().getFullYear(),
+        scenario_id: 1,
+        reporting_currency: 'CAD',
+        consolidate: true,
+      })
+      let line = report.lines.find((l) => l.line_code === map.line_code)
+      if (!line && key === 'net_income') {
+        line = report.lines.find((l) => l.line_code === 'NET_INCOME' || l.line_label === 'Net Income')
+      }
+      if (!line && key === 'revenue') {
+        line = report.lines.find((l) => l.line_code.includes('REV') && l.is_total)
+      }
+      if (!line && key === 'expenses') {
+        line = report.lines.find((l) => l.line_code.includes('EXP') && l.is_total)
+      }
+      if (!line?.drillable) {
+        throw new Error('No drillable statement line for this KPI')
+      }
+      const res = await api.drillReport({
+        line_code: line.line_code,
+        account_id: line.account_id,
+        account_ids: line.account_ids,
+        account_type_filter: line.account_type_filter,
+        filters: {
+          report_type: 'income_statement',
+          period: 'ytd',
+          year: new Date().getFullYear(),
+          scenario_id: 1,
+          reporting_currency: 'CAD',
+          consolidate: true,
+        },
+      })
+      setDrill(res)
+    } catch (e) {
+      setDrill(null)
+      setDrillError((e as Error).message)
+    } finally {
+      setDrillLoading(false)
+    }
+  }
 
   if (error) return <div className="error">{error}</div>
   if (!data) return <p className="hint">Loading dashboard…</p>
@@ -22,7 +85,7 @@ export function DashboardPage() {
       <div className="page-header">
         <div>
           <h1>Dashboard</h1>
-          <p>Cash, earnings, reconciliations, and FX exposure at a glance.</p>
+          <p>Cash, earnings, reconciliations, and FX exposure — click P&L KPIs to open working papers.</p>
         </div>
         <div className="toolbar">
           <Link className="btn" to="/transactions?uncategorized_only=true">
@@ -35,14 +98,25 @@ export function DashboardPage() {
       </div>
 
       <div className="kpi-grid">
-        {data.kpis.map((kpi) => (
-          <div key={kpi.key} className={`kpi ${kpi.status === 'warning' ? 'warn' : kpi.status === 'ok' ? 'ok' : ''}`}>
-            <div className="kpi-label">{kpi.label}</div>
-            <div className="kpi-value">
-              {kpi.format === 'number' ? Number(kpi.value).toLocaleString() : money(kpi.value, kpi.currency)}
+        {data.kpis.map((kpi) => {
+          const drillable = Boolean(KPI_DRILL[kpi.key])
+          return (
+            <div
+              key={kpi.key}
+              className={`kpi ${kpi.status === 'warning' ? 'warn' : kpi.status === 'ok' ? 'ok' : ''} ${drillable ? 'kpi-drillable' : ''}`}
+              onClick={() => drillable && void openKpiDrill(kpi.key)}
+              title={drillable ? 'Open working paper' : undefined}
+            >
+              <div className="kpi-label">
+                {kpi.label}
+                {drillable && <span className="drill-cue">↗</span>}
+              </div>
+              <div className="kpi-value">
+                {kpi.format === 'number' ? Number(kpi.value).toLocaleString() : money(kpi.value, kpi.currency)}
+              </div>
             </div>
-          </div>
-        ))}
+          )
+        })}
       </div>
 
       <div className="grid-2">
@@ -140,6 +214,14 @@ export function DashboardPage() {
           </section>
         </div>
       </div>
+
+      <WorkingPaperDrawer
+        open={drawerOpen}
+        loading={drillLoading}
+        error={drillError}
+        data={drill}
+        onClose={() => setDrawerOpen(false)}
+      />
     </div>
   )
 }
