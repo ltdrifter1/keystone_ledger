@@ -1,0 +1,80 @@
+from fastapi import APIRouter, Depends
+from sqlalchemy.orm import Session
+
+from app.database import get_db
+from app.engines.reporting import build_report
+from app.schemas.reports import ReportFilter, ReportOut
+
+router = APIRouter(prefix="/reports")
+
+
+@router.post("/run", response_model=ReportOut)
+def run_report(filters: ReportFilter, db: Session = Depends(get_db)) -> ReportOut:
+    return build_report(db, filters)
+
+
+@router.get("/income-statement", response_model=ReportOut)
+def income_statement(
+    year: int | None = None,
+    month: int | None = None,
+    period: str = "ytd",
+    scenario_id: int = 1,
+    compare_scenario_id: int | None = None,
+    entity_id: int | None = None,
+    reporting_currency: str = "CAD",
+    db: Session = Depends(get_db),
+) -> ReportOut:
+    filters = ReportFilter(
+        report_type="income_statement",
+        year=year,
+        month=month,
+        period=period,
+        scenario_id=scenario_id,
+        compare_scenario_id=compare_scenario_id,
+        entity_ids=[entity_id] if entity_id else None,
+        reporting_currency=reporting_currency,
+        consolidate=entity_id is None,
+    )
+    return build_report(db, filters)
+
+
+@router.get("/balance-sheet", response_model=ReportOut)
+def balance_sheet(
+    as_of_date: str | None = None,
+    scenario_id: int = 1,
+    entity_id: int | None = None,
+    reporting_currency: str = "CAD",
+    db: Session = Depends(get_db),
+) -> ReportOut:
+    from datetime import date
+
+    filters = ReportFilter(
+        report_type="balance_sheet",
+        as_of_date=date.fromisoformat(as_of_date) if as_of_date else date.today(),
+        scenario_id=scenario_id,
+        entity_ids=[entity_id] if entity_id else None,
+        reporting_currency=reporting_currency,
+        consolidate=entity_id is None,
+    )
+    return build_report(db, filters)
+
+
+@router.get("/cash-flow", response_model=ReportOut)
+def cash_flow(
+    year: int | None = None,
+    period: str = "ytd",
+    scenario_id: int = 1,
+    entity_id: int | None = None,
+    reporting_currency: str = "CAD",
+    db: Session = Depends(get_db),
+) -> ReportOut:
+    filters = ReportFilter(
+        report_type="cash_flow",
+        year=year,
+        period=period,
+        scenario_id=scenario_id,
+        entity_ids=[entity_id] if entity_id else None,
+        reporting_currency=reporting_currency,
+        consolidate=entity_id is None,
+    )
+    return build_report(db, filters)
