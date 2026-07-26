@@ -3,7 +3,6 @@ import { Layout } from './components/Layout'
 import { BankAccountsPage } from './pages/BankAccountsPage'
 import { ClosePackPage } from './pages/ClosePackPage'
 import { DashboardPage } from './pages/DashboardPage'
-import { ReconciliationPage } from './pages/ReconciliationPage'
 import { ReportsPage } from './pages/ReportsPage'
 import { SettingsPage } from './pages/SettingsPage'
 import { TransactionsPage } from './pages/TransactionsPage'
@@ -17,7 +16,7 @@ export default function App() {
         <Route path="close" element={<ClosePackPage />} />
         <Route path="working-papers" element={<WorkingPapersPage />} />
         <Route path="transactions" element={<TransactionsPage />} />
-        <Route path="reconciliation" element={<ReconciliationPage />} />
+        <Route path="reconciliation" element={<Navigate to="/close" replace />} />
         <Route path="reports" element={<ReportsPage />} />
         <Route path="bank-accounts" element={<BankAccountsPage />} />
         <Route path="settings" element={<SettingsPage />} />

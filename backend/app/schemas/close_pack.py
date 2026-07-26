@@ -39,11 +39,14 @@ class ClosePackStatus(BaseModel):
     beginning_balance: float
     statement_ending_balance: Optional[float] = None
     calculated_balance: Optional[float] = None
+    cleared_total: Optional[float] = None
     difference: Optional[float] = None
     cleared_count: int = 0
     uncleared_count: int = 0
     exception_count: int = 0
     blocking_count: int = 0
+    uncategorized_count: int = 0
+    duplicate_count: int = 0
     can_lock: bool = False
     is_locked: bool = False
     exceptions: list[CloseException] = Field(default_factory=list)
@@ -57,6 +60,21 @@ class ClosePackStatus(BaseModel):
     unmatched_intercompany_global: Optional[int] = None
 
 
+class CloseNextAction(BaseModel):
+    key: str
+    kind: str  # categorize | difference | duplicate | ready_to_lock | not_started | intercompany
+    priority: int
+    title: str
+    detail: str
+    bank_account_id: int
+    bank_account_name: Optional[str] = None
+    reconciliation_id: Optional[int] = None
+    mode: str = "exceptions"  # exceptions | items
+    filter: Optional[str] = None
+    count: Optional[int] = None
+    amount: Optional[float] = None
+
+
 class MonthCloseOverview(BaseModel):
     period_year: int
     period_month: int
@@ -64,9 +82,11 @@ class MonthCloseOverview(BaseModel):
     banks_total: int
     banks_locked: int
     banks_ready_to_lock: int
+    banks_in_progress: int = 0
     can_lock_month: bool
     all_locked: bool
     packs: list[ClosePackStatus]
+    next_actions: list[CloseNextAction] = Field(default_factory=list)
     newly_locked: list[int] = Field(default_factory=list)
     errors: list[dict[str, Any]] = Field(default_factory=list)
 

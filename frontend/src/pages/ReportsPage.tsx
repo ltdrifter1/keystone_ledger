@@ -1,10 +1,17 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { api, type DrillOut, type Entity, type Report, type ReportFilters, type ReportLine, type Scenario } from '../api'
 import { WorkingPaperDrawer } from '../components/WorkingPaperDrawer'
 import { money } from '../lib/format'
 
 export function ReportsPage() {
-  const [reportType, setReportType] = useState('income_statement')
+  const [searchParams] = useSearchParams()
+  const initialType = searchParams.get('type') || 'income_statement'
+  const [reportType, setReportType] = useState(
+    ['income_statement', 'balance_sheet', 'cash_flow'].includes(initialType)
+      ? initialType
+      : 'income_statement',
+  )
   const [period, setPeriod] = useState('ytd')
   const [entityId, setEntityId] = useState('')
   const [scenarioId, setScenarioId] = useState('1')
@@ -26,6 +33,13 @@ export function ReportsPage() {
       setScenarios(s)
     })
   }, [])
+
+  useEffect(() => {
+    const t = searchParams.get('type')
+    if (t && ['income_statement', 'balance_sheet', 'cash_flow'].includes(t)) {
+      setReportType(t)
+    }
+  }, [searchParams])
 
   const filters: ReportFilters = useMemo(
     () => ({

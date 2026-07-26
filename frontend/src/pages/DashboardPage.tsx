@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { ArrowRight, CheckCircle2 } from 'lucide-react'
 import { api, type Dashboard, type DrillOut } from '../api'
 import { WorkingPaperDrawer } from '../components/WorkingPaperDrawer'
 import { money } from '../lib/format'
@@ -8,6 +9,14 @@ const KPI_DRILL: Record<string, { line_code: string; label: string }> = {
   revenue: { line_code: 'TOT_REV', label: 'Total Revenue' },
   expenses: { line_code: 'TOT_EXP', label: 'Total Expenses' },
   net_income: { line_code: 'NI', label: 'Net Income' },
+}
+
+const JOB_KPI_HREF: Record<string, string> = {
+  close_progress: '/close',
+  outstanding_reconciliations: '/close',
+  uncategorized: '/close?filter=uncategorized',
+  unmatched_ic: '/close?filter=intercompany',
+  blocking_exceptions: '/close',
 }
 
 export function DashboardPage() {
@@ -32,7 +41,6 @@ export function DashboardPage() {
     setDrillLoading(true)
     setDrillError(null)
     try {
-      // Resolve actual line codes from the live report (TOT_REV / NI naming may vary)
       const report = await api.report({
         report_type: 'income_statement',
         period: 'ytd',
@@ -80,25 +88,111 @@ export function DashboardPage() {
   if (error) return <div className="error">{error}</div>
   if (!data) return <p className="hint">Loading dashboard…</p>
 
+  const summary = data.close_summary
+  const closeHref = summary
+    ? `/close?year=${summary.period_year}&month=${summary.period_month}`
+    : '/close'
+  const jobKeys = new Set(Object.keys(JOB_KPI_HREF))
+  const jobKpis = data.kpis.filter((k) => jobKeys.has(k.key))
+  const contextKpis = data.kpis.filter((k) => !jobKeys.has(k.key))
+
   return (
     <div>
       <div className="page-header">
         <div>
           <h1>Dashboard</h1>
-          <p>Cash, earnings, reconciliations, and FX exposure — click P&L KPIs to open working papers.</p>
+          <p>
+            {summary
+              ? `${summary.period_label}: ${summary.banks_locked}/${summary.banks_total} banks locked · ${summary.blocking_total} blocking`
+              : 'Close progress and what to do next.'}
+          </p>
         </div>
         <div className="toolbar">
-          <Link className="btn" to="/transactions?uncategorized_only=true">
-            Review uncategorized
-          </Link>
-          <Link className="btn primary" to="/close">
-            Statement Close Pack
+          <Link className="btn primary" to={closeHref}>
+            Open Close cockpit
           </Link>
         </div>
       </div>
 
+      {summary && (
+        <section className="panel close-summary-banner">
+          <div>
+            <strong>Month-end {summary.period_label}</strong>
+            <p className="hint">
+              {summary.all_locked
+                ? 'All banks locked for this period.'
+                : `${summary.banks_ready_to_lock} ready to lock · ${summary.banks_in_progress} in progress · ${summary.blocking_total} blocking exceptions`}
+            </p>
+          </div>
+          <Link className="btn primary" to={closeHref}>
+            {summary.all_locked ? (
+              <>
+                <CheckCircle2 size={14} /> View close
+              </>
+            ) : (
+              <>
+                Continue close <ArrowRight size={14} />
+              </>
+            )}
+          </Link>
+        </section>
+      )}
+
+      {(data.next_actions?.length ?? 0) > 0 && (
+        <section className="panel" style={{ marginBottom: '0.85rem' }}>
+          <div className="panel-header">
+            <h2>Next actions</h2>
+            <span className="hint">Deep-links into Close</span>
+          </div>
+          <div className="close-next-list" style={{ padding: '0.75rem' }}>
+            {data.next_actions!.slice(0, 6).map((action) => (
+              <Link
+                key={action.key}
+                to={action.href}
+                className={`close-next-card ${action.status === 'ok' ? 'ok' : 'warn'}`}
+              >
+                <div>
+                  <strong>{action.title}</strong>
+                  <span className="hint">{action.detail}</span>
+                </div>
+                <ArrowRight size={16} />
+              </Link>
+            ))}
+          </div>
+        </section>
+      )}
+
+      <div className="kpi-grid" style={{ marginBottom: '0.65rem' }}>
+        {jobKpis.map((kpi) => {
+          const href =
+            kpi.key === 'close_progress' || kpi.key === 'blocking_exceptions' || kpi.key === 'outstanding_reconciliations'
+              ? closeHref
+              : `${JOB_KPI_HREF[kpi.key]}${summary ? `&year=${summary.period_year}&month=${summary.period_month}` : ''}`
+          return (
+            <Link
+              key={kpi.key}
+              to={href}
+              className={`kpi ${kpi.status === 'warning' ? 'warn' : kpi.status === 'ok' ? 'ok' : ''} kpi-drillable`}
+              title="Open Close cockpit"
+            >
+              <div className="kpi-label">
+                {kpi.label}
+                <span className="drill-cue">↗</span>
+              </div>
+              <div className="kpi-value">
+                {kpi.key === 'close_progress' && summary
+                  ? `${summary.banks_locked}/${summary.banks_total}`
+                  : kpi.format === 'number'
+                    ? Number(kpi.value).toLocaleString()
+                    : money(kpi.value, kpi.currency)}
+              </div>
+            </Link>
+          )
+        })}
+      </div>
+
       <div className="kpi-grid">
-        {data.kpis.map((kpi) => {
+        {contextKpis.map((kpi) => {
           const drillable = Boolean(KPI_DRILL[kpi.key])
           return (
             <div
@@ -123,7 +217,9 @@ export function DashboardPage() {
         <section className="panel">
           <div className="panel-header">
             <h2>Cash by account</h2>
-            <span className="hint">Reporting currency CAD</span>
+            <Link className="btn ghost" to={closeHref}>
+              Reconcile
+            </Link>
           </div>
           <div className="table-wrap" style={{ maxHeight: 360 }}>
             <table className="data">
@@ -138,7 +234,9 @@ export function DashboardPage() {
               <tbody>
                 {data.cash_by_account.map((row) => (
                   <tr key={row.bank_account_id}>
-                    <td>{row.name}</td>
+                    <td>
+                      <Link to={`${closeHref}&bank=${row.bank_account_id}`}>{row.name}</Link>
+                    </td>
                     <td>
                       <span className="badge">{row.entity_code}</span>
                     </td>
@@ -183,6 +281,9 @@ export function DashboardPage() {
           <section className="panel">
             <div className="panel-header">
               <h2>Intercompany balances</h2>
+              <Link className="btn ghost" to={`${closeHref}&filter=intercompany`}>
+                Match
+              </Link>
             </div>
             <div className="table-wrap" style={{ maxHeight: 180 }}>
               <table className="data">

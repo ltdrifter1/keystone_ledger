@@ -8,13 +8,16 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
+from app.engines.close_pack import month_close_overview
 from app.engines.fx import fx_exposure_by_currency, translate_amount
 from app.engines.intercompany import unmatched_intercompany_count
 from app.engines.reporting import aggregate_by_account
 from app.models import BankAccount, DimAccount, DimEntity, Reconciliation, Transaction
 from app.schemas.reports import (
     CashBalanceRow,
+    DashboardCloseSummary,
     DashboardKPI,
+    DashboardNextAction,
     DashboardOut,
     ReportFilter,
 )
@@ -165,12 +168,82 @@ def build_dashboard(db: Session, reporting_currency: str | None = None) -> Dashb
         if bal != 0
     ]
 
+    close = month_close_overview(db, today.year, today.month)
+    blocking_total = sum(int(p.get("blocking_count") or 0) for p in close["packs"])
+    close_summary = DashboardCloseSummary(
+        period_year=close["period_year"],
+        period_month=close["period_month"],
+        period_label=close["period_label"],
+        banks_total=close["banks_total"],
+        banks_locked=close["banks_locked"],
+        banks_ready_to_lock=close["banks_ready_to_lock"],
+        banks_in_progress=close.get("banks_in_progress", 0),
+        can_lock_month=close["can_lock_month"],
+        all_locked=close["all_locked"],
+        blocking_total=blocking_total,
+    )
+
+    next_actions: list[DashboardNextAction] = []
+    for action in close.get("next_actions", [])[:8]:
+        params = [
+            f"year={close['period_year']}",
+            f"month={close['period_month']}",
+            f"bank={action['bank_account_id']}",
+            f"mode={action.get('mode') or 'exceptions'}",
+        ]
+        if action.get("filter"):
+            params.append(f"filter={action['filter']}")
+        next_actions.append(
+            DashboardNextAction(
+                key=action["key"],
+                kind=action["kind"],
+                priority=action["priority"],
+                title=action["title"],
+                detail=action["detail"],
+                href=f"/close?{'&'.join(params)}",
+                count=action.get("count"),
+                amount=action.get("amount"),
+                status="ok" if action["kind"] == "ready_to_lock" else "warning",
+            )
+        )
+    if uncategorized and not any(a.kind == "categorize" for a in next_actions):
+        next_actions.insert(
+            0,
+            DashboardNextAction(
+                key="global-uncategorized",
+                kind="categorize",
+                priority=5,
+                title=f"Categorize {uncategorized} uncategorized",
+                detail="Open the close cockpit for this month’s bank exceptions",
+                href=f"/close?year={today.year}&month={today.month}&filter=uncategorized",
+                count=int(uncategorized),
+                status="warning",
+            ),
+        )
+    if unmatched_ic:
+        next_actions.append(
+            DashboardNextAction(
+                key="unmatched-ic",
+                kind="intercompany",
+                priority=30,
+                title=f"Match {unmatched_ic} intercompany",
+                detail="Unmatched IC transfers still open",
+                href=f"/close?year={today.year}&month={today.month}&filter=intercompany",
+                count=int(unmatched_ic),
+                status="warning",
+            )
+        )
+    next_actions.sort(key=lambda a: (a.priority, a.title))
+
+    # Job KPIs first — what to do next — then P&L context
     kpis = [
-        DashboardKPI(key="consolidated_cash", label="Consolidated Cash", value=consolidated_cash, currency=reporting_currency),
-        DashboardKPI(key="revenue", label="Revenue YTD", value=revenue, currency=reporting_currency),
-        DashboardKPI(key="expenses", label="Expenses YTD", value=expenses, currency=reporting_currency),
-        DashboardKPI(key="net_income", label="Net Income YTD", value=net_income, currency=reporting_currency),
-        DashboardKPI(key="working_capital", label="Working Capital", value=working_capital, currency=reporting_currency),
+        DashboardKPI(
+            key="close_progress",
+            label=f"Close {close_summary.period_label}",
+            value=Decimal(close_summary.banks_locked),
+            format="number",
+            status="ok" if close_summary.all_locked else "warning",
+        ),
         DashboardKPI(
             key="outstanding_reconciliations",
             label="Open Reconciliations",
@@ -192,6 +265,18 @@ def build_dashboard(db: Session, reporting_currency: str | None = None) -> Dashb
             format="number",
             status="warning" if unmatched_ic else "ok",
         ),
+        DashboardKPI(
+            key="blocking_exceptions",
+            label="Blocking Exceptions",
+            value=Decimal(blocking_total),
+            format="number",
+            status="warning" if blocking_total else "ok",
+        ),
+        DashboardKPI(key="consolidated_cash", label="Consolidated Cash", value=consolidated_cash, currency=reporting_currency),
+        DashboardKPI(key="revenue", label="Revenue YTD", value=revenue, currency=reporting_currency),
+        DashboardKPI(key="expenses", label="Expenses YTD", value=expenses, currency=reporting_currency),
+        DashboardKPI(key="net_income", label="Net Income YTD", value=net_income, currency=reporting_currency),
+        DashboardKPI(key="working_capital", label="Working Capital", value=working_capital, currency=reporting_currency),
     ]
 
     return DashboardOut(
@@ -202,4 +287,6 @@ def build_dashboard(db: Session, reporting_currency: str | None = None) -> Dashb
         unmatched_intercompany=int(unmatched_ic),
         fx_exposure=fx_exposure_by_currency(db, dict(cash_by_ccy), reporting_currency, today),
         intercompany_balances=ic_rows,
+        close_summary=close_summary,
+        next_actions=next_actions,
     )

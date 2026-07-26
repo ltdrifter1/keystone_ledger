@@ -133,6 +133,31 @@ class CashBalanceRow(BaseModel):
     balance_reporting: Decimal
 
 
+class DashboardNextAction(BaseModel):
+    key: str
+    kind: str
+    priority: int
+    title: str
+    detail: str
+    href: str
+    count: Optional[int] = None
+    amount: Optional[float] = None
+    status: Optional[str] = None
+
+
+class DashboardCloseSummary(BaseModel):
+    period_year: int
+    period_month: int
+    period_label: str
+    banks_total: int
+    banks_locked: int
+    banks_ready_to_lock: int
+    banks_in_progress: int
+    can_lock_month: bool
+    all_locked: bool
+    blocking_total: int = 0
+
+
 class DashboardOut(BaseModel):
     kpis: list[DashboardKPI]
     cash_by_account: list[CashBalanceRow]
@@ -141,3 +166,5 @@ class DashboardOut(BaseModel):
     unmatched_intercompany: int
     fx_exposure: list[dict] = Field(default_factory=list)
     intercompany_balances: list[dict] = Field(default_factory=list)
+    close_summary: Optional[DashboardCloseSummary] = None
+    next_actions: list[DashboardNextAction] = Field(default_factory=list)

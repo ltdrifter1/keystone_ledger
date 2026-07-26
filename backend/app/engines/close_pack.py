@@ -308,6 +308,14 @@ def build_close_pack_status(db: Session, recon: Reconciliation) -> dict:
     )
     cleared_count = sum(1 for i in items if i.is_cleared)
     uncleared_count = sum(1 for i in items if not i.is_cleared)
+    cleared_total = Decimal("0")
+    for item in items:
+        txn = item.transaction
+        if item.is_cleared and txn is not None and txn.status != "void":
+            cleared_total += Decimal(txn.amount)
+
+    uncategorized_count = sum(1 for e in exceptions if e["kind"] == "uncategorized")
+    duplicate_count = sum(1 for e in exceptions if e["kind"] == "duplicate")
 
     return {
         "reconciliation_id": recon.id,
@@ -322,11 +330,14 @@ def build_close_pack_status(db: Session, recon: Reconciliation) -> dict:
         "beginning_balance": float(beg),
         "statement_ending_balance": float(recon.statement_ending_balance),
         "calculated_balance": float(recon.calculated_balance or 0),
+        "cleared_total": float(cleared_total),
         "difference": float(recon.difference or 0),
         "cleared_count": cleared_count,
         "uncleared_count": uncleared_count,
         "exception_count": len(exceptions),
         "blocking_count": len(blocking),
+        "uncategorized_count": uncategorized_count,
+        "duplicate_count": duplicate_count,
         "can_lock": can_lock,
         "is_locked": recon.status == "locked",
         "exceptions": exceptions,
@@ -521,6 +532,114 @@ def lock_close_pack(db: Session, reconciliation_id: int, actor: str = "controlle
     return build_close_pack_status(db, recon)
 
 
+def build_next_actions(packs: list[dict]) -> list[dict]:
+    """Ranked controller queue: categorize → difference → duplicates → start → lock."""
+    actions: list[dict] = []
+    for pack in packs:
+        bank_id = pack["bank_account_id"]
+        bank_name = pack.get("bank_account_name") or f"Bank {bank_id}"
+        recon_id = pack.get("reconciliation_id")
+        if pack.get("is_locked"):
+            continue
+
+        if pack.get("status") == "not_started":
+            actions.append(
+                {
+                    "key": f"start-{bank_id}",
+                    "kind": "not_started",
+                    "priority": 40,
+                    "title": f"Start close · {bank_name}",
+                    "detail": "Enter statement ending balance and run the pack",
+                    "bank_account_id": bank_id,
+                    "bank_account_name": bank_name,
+                    "reconciliation_id": None,
+                    "mode": "exceptions",
+                    "filter": None,
+                    "count": None,
+                    "amount": None,
+                }
+            )
+            continue
+
+        uncat = int(pack.get("uncategorized_count") or 0)
+        if uncat:
+            actions.append(
+                {
+                    "key": f"cat-{bank_id}",
+                    "kind": "categorize",
+                    "priority": 10,
+                    "title": f"Categorize {uncat} · {bank_name}",
+                    "detail": "Uncategorized items blocking the exception pass",
+                    "bank_account_id": bank_id,
+                    "bank_account_name": bank_name,
+                    "reconciliation_id": recon_id,
+                    "mode": "exceptions",
+                    "filter": "uncategorized",
+                    "count": uncat,
+                    "amount": None,
+                }
+            )
+
+        diff = pack.get("difference")
+        if diff is not None and abs(float(diff)) >= 0.01:
+            actions.append(
+                {
+                    "key": f"diff-{bank_id}",
+                    "kind": "difference",
+                    "priority": 20,
+                    "title": f"Diff {float(diff):,.2f} · {bank_name}",
+                    "detail": "Clear or unclear items until the tie-out is zero",
+                    "bank_account_id": bank_id,
+                    "bank_account_name": bank_name,
+                    "reconciliation_id": recon_id,
+                    "mode": "items",
+                    "filter": "uncleared",
+                    "count": int(pack.get("uncleared_count") or 0),
+                    "amount": float(diff),
+                }
+            )
+
+        dups = int(pack.get("duplicate_count") or 0)
+        if dups:
+            actions.append(
+                {
+                    "key": f"dup-{bank_id}",
+                    "kind": "duplicate",
+                    "priority": 25,
+                    "title": f"Review {dups} duplicate(s) · {bank_name}",
+                    "detail": "Void duplicates or keep & clear",
+                    "bank_account_id": bank_id,
+                    "bank_account_name": bank_name,
+                    "reconciliation_id": recon_id,
+                    "mode": "exceptions",
+                    "filter": "duplicate",
+                    "count": dups,
+                    "amount": None,
+                }
+            )
+
+        if pack.get("can_lock"):
+            actions.append(
+                {
+                    "key": f"lock-{bank_id}",
+                    "kind": "ready_to_lock",
+                    "priority": 50,
+                    "title": f"Ready to lock · {bank_name}",
+                    "detail": "No blocking exceptions; difference is zero",
+                    "bank_account_id": bank_id,
+                    "bank_account_name": bank_name,
+                    "reconciliation_id": recon_id,
+                    "mode": "exceptions",
+                    "filter": None,
+                    "count": None,
+                    "amount": 0.0,
+                }
+            )
+
+    actions.sort(key=lambda a: (a["priority"], a.get("bank_account_name") or ""))
+    return actions
+
+
 def month_close_overview(db: Session, year: int, month: int) -> dict:
     banks = list(db.scalars(select(BankAccount).where(BankAccount.is_active == True)).all())
     entities = {e.id: e for e in db.scalars(select(DimEntity)).all()}
@@ -550,11 +669,14 @@ def month_close_overview(db: Session, year: int, month: int) -> dict:
                 "beginning_balance": float(beg),
                 "statement_ending_balance": None,
                 "calculated_balance": None,
+                "cleared_total": None,
                 "difference": None,
                 "cleared_count": 0,
                 "uncleared_count": 0,
                 "exception_count": 0,
                 "blocking_count": 0,
+                "uncategorized_count": 0,
+                "duplicate_count": 0,
                 "can_lock": False,
                 "is_locked": False,
                 "exceptions": [],
@@ -563,6 +685,9 @@ def month_close_overview(db: Session, year: int, month: int) -> dict:
 
     ready = [p for p in packs if p["can_lock"]]
     locked = [p for p in packs if p["is_locked"]]
+    in_progress = [
+        p for p in packs if p["status"] not in ("not_started", "locked") and not p["can_lock"]
+    ]
     return {
         "period_year": year,
         "period_month": month,
@@ -570,11 +695,13 @@ def month_close_overview(db: Session, year: int, month: int) -> dict:
         "banks_total": len(packs),
         "banks_locked": len(locked),
         "banks_ready_to_lock": len(ready),
+        "banks_in_progress": len(in_progress),
         "can_lock_month": bool(packs)
         and all(p["is_locked"] or p["can_lock"] for p in packs)
         and len(ready) > 0,
         "all_locked": len(locked) == len(packs) and len(packs) > 0,
         "packs": packs,
+        "next_actions": build_next_actions(packs),
     }
 
 

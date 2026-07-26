@@ -8,6 +8,7 @@ import {
   type Entity,
   type Transaction,
 } from '../api'
+import { AccountPicker } from '../components/AccountPicker'
 import { useToast } from '../hooks/useToast'
 import { money } from '../lib/format'
 
@@ -333,21 +334,11 @@ export function TransactionsPage() {
           Unreconciled
         </label>
         {selected.size > 0 && (
-          <select
-            className="select"
-            defaultValue=""
-            onChange={(e) => {
-              if (e.target.value) void bulkCategorizeSelected(Number(e.target.value))
-              e.target.value = ''
-            }}
-          >
-            <option value="">Bulk categorize {selected.size}…</option>
-            {accounts.map((a) => (
-              <option key={a.id} value={a.id}>
-                {a.code} — {a.name}
-              </option>
-            ))}
-          </select>
+          <AccountPicker
+            accounts={accounts}
+            placeholder={`Bulk categorize ${selected.size}…`}
+            onSelect={(id) => void bulkCategorizeSelected(id)}
+          />
         )}
       </div>
 
@@ -411,23 +402,20 @@ export function TransactionsPage() {
                           <button className="btn ghost" onClick={() => openSplit(txn)}>
                             Split ({txn.splits?.length ?? 0})
                           </button>
+                        ) : locked ? (
+                          <span className="hint">
+                            {txn.account_code ? `${txn.account_code} ${txn.account_name}` : '—'}
+                          </span>
                         ) : (
-                          <select
-                            className="select inline"
-                            disabled={locked}
-                            value={txn.account_id ?? ''}
-                            onChange={(e) => {
-                              const v = e.target.value
-                              if (v) void inlineCategorize(txn, Number(v))
-                            }}
-                          >
-                            <option value="">—</option>
-                            {accounts.map((a) => (
-                              <option key={a.id} value={a.id}>
-                                {a.code} {a.name}
-                              </option>
-                            ))}
-                          </select>
+                          <AccountPicker
+                            accounts={accounts}
+                            placeholder={
+                              txn.account_code
+                                ? `${txn.account_code} ${txn.account_name}`
+                                : 'Categorize…'
+                            }
+                            onSelect={(id) => void inlineCategorize(txn, id)}
+                          />
                         )}
                       </td>
                       <td onClick={(e) => e.stopPropagation()}>
