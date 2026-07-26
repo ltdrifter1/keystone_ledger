@@ -1,6 +1,7 @@
 import { Navigate, Route, Routes } from 'react-router-dom'
 import { Layout } from './components/Layout'
 import { BankAccountsPage } from './pages/BankAccountsPage'
+import { ClosePackPage } from './pages/ClosePackPage'
 import { DashboardPage } from './pages/DashboardPage'
 import { ReconciliationPage } from './pages/ReconciliationPage'
 import { ReportsPage } from './pages/ReportsPage'
@@ -12,6 +13,7 @@ export default function App() {
     <Routes>
       <Route element={<Layout />}>
         <Route index element={<DashboardPage />} />
+        <Route path="close" element={<ClosePackPage />} />
         <Route path="transactions" element={<TransactionsPage />} />
         <Route path="reconciliation" element={<ReconciliationPage />} />
         <Route path="reports" element={<ReportsPage />} />

@@ -6,10 +6,12 @@ import {
   Scale,
   FileBarChart2,
   Settings,
+  Sparkles,
 } from 'lucide-react'
 
 const links = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard },
+  { to: '/close', label: 'Close Pack', icon: Sparkles },
   { to: '/transactions', label: 'Transactions', icon: ArrowLeftRight },
   { to: '/reconciliation', label: 'Reconciliation', icon: Scale },
   { to: '/reports', label: 'Reports', icon: FileBarChart2 },
@@ -36,12 +38,12 @@ export function Layout() {
           ))}
         </nav>
         <div className="nav-meta">
-          Transactions are the system of record.
+          Month-end is an exception pass.
           <br />
-          Bank accounts are attributes.
+          Upload → auto-clear → lock.
           <br />
-          <span className="kbd">/</span> search · <span className="kbd">C</span> categorize ·{' '}
-          <span className="kbd">R</span> apply rules
+          <span className="kbd">/</span> search · <span className="kbd">R</span> rules ·{' '}
+          <span className="kbd">S</span> split
         </div>
       </aside>
       <main className="main">
