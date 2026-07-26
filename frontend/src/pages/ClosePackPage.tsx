@@ -23,31 +23,15 @@ import {
 import { AccountPicker } from '../components/AccountPicker'
 import { useToast } from '../hooks/useToast'
 import { money } from '../lib/format'
-
-const PERIOD_KEY = 'keystone.close.period'
+import { usePeriod } from '../period/PeriodContext'
 
 type Mode = 'exceptions' | 'items'
 
-function loadStoredPeriod() {
-  const now = new Date()
-  try {
-    const raw = localStorage.getItem(PERIOD_KEY)
-    if (!raw) return { year: String(now.getFullYear()), month: String(now.getMonth() + 1) }
-    const parsed = JSON.parse(raw) as { year?: string; month?: string }
-    return {
-      year: parsed.year || String(now.getFullYear()),
-      month: parsed.month || String(now.getMonth() + 1),
-    }
-  } catch {
-    return { year: String(now.getFullYear()), month: String(now.getMonth() + 1) }
-  }
-}
-
 export function ClosePackPage() {
-  const stored = loadStoredPeriod()
+  const { year: periodYear, month: periodMonth, setPeriod } = usePeriod()
   const [searchParams, setSearchParams] = useSearchParams()
-  const [year, setYear] = useState(searchParams.get('year') || stored.year)
-  const [month, setMonth] = useState(searchParams.get('month') || stored.month)
+  const year = String(periodYear)
+  const month = String(periodMonth)
   const [banks, setBanks] = useState<BankAccount[]>([])
   const [accounts, setAccounts] = useState<Account[]>([])
   const [overview, setOverview] = useState<MonthCloseOverview | null>(null)
@@ -65,8 +49,17 @@ export function ClosePackPage() {
   const { toast, show } = useToast()
 
   useEffect(() => {
-    localStorage.setItem(PERIOD_KEY, JSON.stringify({ year, month }))
-  }, [year, month])
+    const y = searchParams.get('year')
+    const m = searchParams.get('month')
+    if (y && m) {
+      const yi = Number(y)
+      const mi = Number(m)
+      if (yi && mi && (yi !== periodYear || mi !== periodMonth)) {
+        setPeriod(yi, mi)
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const syncUrl = useCallback(
     (next: { year?: string; month?: string; bank?: string; mode?: Mode; filter?: string }) => {
@@ -368,26 +361,7 @@ export function ClosePackPage() {
       {error && <div className="error">{error}</div>}
 
       <div className="filters close-period-bar">
-        <input
-          className="input"
-          type="number"
-          value={year}
-          onChange={(e) => {
-            setYear(e.target.value)
-            syncUrl({ year: e.target.value })
-          }}
-        />
-        <input
-          className="input"
-          type="number"
-          min={1}
-          max={12}
-          value={month}
-          onChange={(e) => {
-            setMonth(e.target.value)
-            syncUrl({ month: e.target.value })
-          }}
-        />
+        <span className="hint">Engagement period {year}-{String(month).padStart(2, '0')} (sidebar)</span>
         {overview && (
           <span className="badge ok">
             {overview.banks_locked}/{overview.banks_total} locked · {overview.banks_ready_to_lock} ready
@@ -399,6 +373,9 @@ export function ClosePackPage() {
             <CheckCircle2 size={12} /> Month complete
           </span>
         )}
+        <Link className="btn ghost" to={`/working-papers?year=${year}&month=${month}&key=cash`}>
+          Cash WP C.1
+        </Link>
       </div>
 
       {overview && overview.next_actions.length > 0 && (

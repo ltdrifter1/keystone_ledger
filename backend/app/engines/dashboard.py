@@ -9,6 +9,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
+from app.engines.binder import build_binder
 from app.engines.close_pack import month_close_overview
 from app.engines.fx import fx_exposure_by_currency, translate_amount
 from app.engines.intercompany import unmatched_intercompany_count
@@ -16,6 +17,7 @@ from app.engines.reporting import aggregate_by_account
 from app.models import BankAccount, DimAccount, DimEntity, Reconciliation, Transaction
 from app.schemas.reports import (
     CashBalanceRow,
+    DashboardBinderSummary,
     DashboardCloseSummary,
     DashboardKPI,
     DashboardNextAction,
@@ -353,6 +355,19 @@ def build_dashboard(db: Session, reporting_currency: str | None = None) -> Dashb
         )
     next_actions.sort(key=lambda a: (a.priority, a.title))
 
+    binder = build_binder(db, today.year, today.month)
+    binder_summary = DashboardBinderSummary(
+        period_year=binder["period_year"],
+        period_month=binder["period_month"],
+        period_label=binder["period_label"],
+        total=binder["summary"]["total"],
+        prepared=binder["summary"]["prepared"],
+        reviewed=binder["summary"]["reviewed"],
+        open=binder["summary"]["open"],
+        untied=binder["summary"]["untied"],
+        href=f"/working-papers?year={binder['period_year']}&month={binder['period_month']}",
+    )
+
     # Job KPIs first — what to do next — then P&L context
     kpis = [
         DashboardKPI(
@@ -390,6 +405,20 @@ def build_dashboard(db: Session, reporting_currency: str | None = None) -> Dashb
             format="number",
             status="warning" if blocking_total else "ok",
         ),
+        DashboardKPI(
+            key="binder_ready",
+            label="WPs Prepared",
+            value=Decimal(binder_summary.prepared),
+            format="number",
+            status="ok" if binder_summary.prepared == binder_summary.total else "warning",
+        ),
+        DashboardKPI(
+            key="binder_untied",
+            label="Untied WP Leads",
+            value=Decimal(binder_summary.untied),
+            format="number",
+            status="warning" if binder_summary.untied else "ok",
+        ),
         DashboardKPI(key="consolidated_cash", label="Consolidated Cash", value=consolidated_cash, currency=reporting_currency),
         DashboardKPI(key="revenue", label="Revenue YTD", value=revenue, currency=reporting_currency),
         DashboardKPI(key="expenses", label="Expenses YTD", value=expenses, currency=reporting_currency),
@@ -408,4 +437,5 @@ def build_dashboard(db: Session, reporting_currency: str | None = None) -> Dashb
         intercompany_balances=ic_rows,
         close_summary=close_summary,
         next_actions=next_actions,
+        binder_summary=binder_summary,
     )

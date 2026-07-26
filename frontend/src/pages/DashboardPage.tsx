@@ -17,6 +17,8 @@ const JOB_KPI_HREF: Record<string, string> = {
   uncategorized: '/close?filter=uncategorized',
   unmatched_ic: '/close?filter=intercompany',
   blocking_exceptions: '/close',
+  binder_ready: '/working-papers',
+  binder_untied: '/working-papers',
 }
 
 export function DashboardPage() {
@@ -114,29 +116,45 @@ export function DashboardPage() {
         </div>
       </div>
 
-      {summary && (
-        <section className="panel close-summary-banner">
-          <div>
-            <strong>Month-end {summary.period_label}</strong>
-            <p className="hint">
-              {summary.all_locked
-                ? 'All banks locked for this period.'
-                : `${summary.banks_ready_to_lock} ready to lock · ${summary.banks_in_progress} in progress · ${summary.blocking_total} blocking exceptions`}
-            </p>
-          </div>
-          <Link className="btn primary" to={closeHref}>
-            {summary.all_locked ? (
-              <>
-                <CheckCircle2 size={14} /> View close
-              </>
-            ) : (
-              <>
-                Continue close <ArrowRight size={14} />
-              </>
-            )}
-          </Link>
-        </section>
-      )}
+      <div className="grid-2" style={{ marginBottom: '0.85rem' }}>
+        {summary && (
+          <section className="panel close-summary-banner">
+            <div>
+              <strong>Month-end {summary.period_label}</strong>
+              <p className="hint">
+                {summary.all_locked
+                  ? 'All banks locked for this period.'
+                  : `${summary.banks_ready_to_lock} ready to lock · ${summary.banks_in_progress} in progress · ${summary.blocking_total} blocking exceptions`}
+              </p>
+            </div>
+            <Link className="btn primary" to={closeHref}>
+              {summary.all_locked ? (
+                <>
+                  <CheckCircle2 size={14} /> View close
+                </>
+              ) : (
+                <>
+                  Continue close <ArrowRight size={14} />
+                </>
+              )}
+            </Link>
+          </section>
+        )}
+        {data.binder_summary && (
+          <section className="panel close-summary-banner">
+            <div>
+              <strong>Binder {data.binder_summary.period_label}</strong>
+              <p className="hint">
+                {data.binder_summary.prepared}/{data.binder_summary.total} prepared ·{' '}
+                {data.binder_summary.reviewed} reviewed · {data.binder_summary.untied} untied leads
+              </p>
+            </div>
+            <Link className="btn primary" to={data.binder_summary.href}>
+              Open binder <ArrowRight size={14} />
+            </Link>
+          </section>
+        )}
+      </div>
 
       {(data.next_actions?.length ?? 0) > 0 && (
         <section className="panel" style={{ marginBottom: '0.85rem' }}>
@@ -164,16 +182,23 @@ export function DashboardPage() {
 
       <div className="kpi-grid" style={{ marginBottom: '0.65rem' }}>
         {jobKpis.map((kpi) => {
-          const href =
-            kpi.key === 'close_progress' || kpi.key === 'blocking_exceptions' || kpi.key === 'outstanding_reconciliations'
-              ? closeHref
-              : `${JOB_KPI_HREF[kpi.key]}${summary ? `&year=${summary.period_year}&month=${summary.period_month}` : ''}`
+          const binder = data.binder_summary
+          let href = closeHref
+          if (kpi.key === 'binder_ready' || kpi.key === 'binder_untied') {
+            href = binder?.href ?? '/working-papers'
+          } else if (
+            kpi.key !== 'close_progress' &&
+            kpi.key !== 'blocking_exceptions' &&
+            kpi.key !== 'outstanding_reconciliations'
+          ) {
+            href = `${JOB_KPI_HREF[kpi.key]}${summary ? `&year=${summary.period_year}&month=${summary.period_month}` : ''}`
+          }
           return (
             <Link
               key={kpi.key}
               to={href}
               className={`kpi ${kpi.status === 'warning' ? 'warn' : kpi.status === 'ok' ? 'ok' : ''} kpi-drillable`}
-              title="Open Close cockpit"
+              title={kpi.key.startsWith('binder') ? 'Open binder' : 'Open Close cockpit'}
             >
               <div className="kpi-label">
                 {kpi.label}
@@ -182,9 +207,11 @@ export function DashboardPage() {
               <div className="kpi-value">
                 {kpi.key === 'close_progress' && summary
                   ? `${summary.banks_locked}/${summary.banks_total}`
-                  : kpi.format === 'number'
-                    ? Number(kpi.value).toLocaleString()
-                    : money(kpi.value, kpi.currency)}
+                  : kpi.key === 'binder_ready' && binder
+                    ? `${binder.prepared}/${binder.total}`
+                    : kpi.format === 'number'
+                      ? Number(kpi.value).toLocaleString()
+                      : money(kpi.value, kpi.currency)}
               </div>
             </Link>
           )

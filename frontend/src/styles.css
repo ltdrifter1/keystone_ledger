@@ -1118,6 +1118,38 @@ a.kpi {
   color: inherit;
 }
 
+.period-chip {
+  display: grid;
+  grid-template-columns: auto 1fr 1fr auto;
+  gap: 0.35rem;
+  align-items: center;
+  margin: 0.75rem 0.85rem 0.35rem;
+  padding: 0.55rem 0.6rem;
+  border-radius: 10px;
+  border: 1px solid rgba(240, 194, 122, 0.28);
+  background: rgba(0, 0, 0, 0.22);
+}
+
+.period-chip-label {
+  font-size: 0.68rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.period-chip-input {
+  min-width: 0;
+  padding: 0.3rem 0.35rem;
+  font-size: 0.82rem;
+}
+
+.wp-index-flags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  margin-top: 0.25rem;
+}
+
 .recon-health-panel {
   margin-bottom: 0.85rem;
 }
