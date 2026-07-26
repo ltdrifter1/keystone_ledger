@@ -25,6 +25,7 @@ export type BankAccount = {
   currency: string
   institution?: string
   opening_balance: string
+  budget_balance?: string | null
 }
 export type Scenario = { id: number; code: string; name: string; scenario_type: string }
 export type Department = { id: number; code: string; name: string; entity_id?: number }
@@ -99,6 +100,25 @@ export type DashboardCloseSummary = {
   blocking_total: number
 }
 
+export type ReconHealthRow = {
+  bank_account_id: number
+  name: string
+  entity_code: string
+  currency: string
+  balance: string
+  budget_balance?: string | null
+  variance?: string | null
+  variance_pct?: string | null
+  on_target?: boolean | null
+  target_status: string
+  last_reconciled_date?: string | null
+  last_reconciled_period?: string | null
+  days_since_reconciled?: number | null
+  recon_freshness: string
+  current_period_status: string
+  href: string
+}
+
 export type Dashboard = {
   kpis: Array<{
     key: string
@@ -116,6 +136,7 @@ export type Dashboard = {
     balance: string
     balance_reporting: string
   }>
+  recon_health?: ReconHealthRow[]
   outstanding_reconciliations: number
   uncategorized_transactions: number
   unmatched_intercompany: number

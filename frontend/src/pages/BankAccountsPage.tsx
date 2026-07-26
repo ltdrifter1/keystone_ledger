@@ -42,6 +42,7 @@ export function BankAccountsPage() {
                 <th>Number</th>
                 <th>Currency</th>
                 <th className="num">Opening</th>
+                <th className="num">Budget</th>
                 <th></th>
               </tr>
             </thead>
@@ -56,6 +57,11 @@ export function BankAccountsPage() {
                   <td>{b.account_number}</td>
                   <td>{b.currency}</td>
                   <td className="num">{money(b.opening_balance, b.currency)}</td>
+                  <td className="num">
+                    {b.budget_balance == null || b.budget_balance === ''
+                      ? '—'
+                      : money(b.budget_balance, b.currency)}
+                  </td>
                   <td>
                     <Link className="btn ghost" to={`/transactions?bank_account_id=${b.id}`}>
                       Transactions

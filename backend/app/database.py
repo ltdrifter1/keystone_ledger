@@ -49,3 +49,16 @@ def init_db() -> None:
     from app import models  # noqa: F401
 
     Base.metadata.create_all(bind=engine)
+    _ensure_sqlite_columns()
+
+
+def _ensure_sqlite_columns() -> None:
+    """Add newly introduced columns on existing SQLite files."""
+    if not settings.database_url.startswith("sqlite"):
+        return
+    from sqlalchemy import text
+
+    with engine.begin() as conn:
+        cols = {row[1] for row in conn.execute(text("PRAGMA table_info(bank_accounts)")).fetchall()}
+        if "budget_balance" not in cols:
+            conn.execute(text("ALTER TABLE bank_accounts ADD COLUMN budget_balance NUMERIC(18, 2)"))

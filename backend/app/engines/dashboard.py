@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from calendar import monthrange
 from collections import defaultdict
 from datetime import date
 from decimal import Decimal
@@ -19,8 +20,115 @@ from app.schemas.reports import (
     DashboardKPI,
     DashboardNextAction,
     DashboardOut,
+    ReconHealthRow,
     ReportFilter,
 )
+
+# Cash vs budget: within max(5% of budget, 500 native units) counts as on target
+_BUDGET_PCT = Decimal("0.05")
+_BUDGET_FLOOR = Decimal("500")
+
+
+def _period_end(year: int, month: int) -> date:
+    return date(year, month, monthrange(year, month)[1])
+
+
+def _target_status(balance: Decimal, budget: Decimal | None) -> tuple[str, bool | None, Decimal | None, Decimal | None]:
+    if budget is None:
+        return "no_budget", None, None, None
+    variance = balance - budget
+    variance_pct = None
+    if budget != 0:
+        variance_pct = (variance / abs(budget)) * Decimal("100")
+    tolerance = max(abs(budget) * _BUDGET_PCT, _BUDGET_FLOOR)
+    if abs(variance) <= tolerance:
+        return "on_target", True, variance, variance_pct
+    if variance > 0:
+        return "above", False, variance, variance_pct
+    return "below", False, variance, variance_pct
+
+
+def _recon_freshness(last_date: date | None, today: date) -> str:
+    if last_date is None:
+        return "never"
+    # Current calendar month end still "current"; prior month OK; older = stale
+    if last_date.year == today.year and last_date.month == today.month:
+        return "current"
+    # Prior month
+    if today.month == 1:
+        prior_y, prior_m = today.year - 1, 12
+    else:
+        prior_y, prior_m = today.year, today.month - 1
+    prior_end = _period_end(prior_y, prior_m)
+    if last_date >= prior_end:
+        return "prior"
+    return "stale"
+
+
+def build_recon_health(
+    db: Session,
+    *,
+    banks: list[BankAccount],
+    entities: dict[int, DimEntity],
+    balances: dict[int, Decimal],
+    today: date,
+) -> list[ReconHealthRow]:
+    rows: list[ReconHealthRow] = []
+    for bank in banks:
+        balance = balances.get(bank.id, Decimal("0"))
+        budget = Decimal(bank.budget_balance) if bank.budget_balance is not None else None
+        target_status, on_target, variance, variance_pct = _target_status(balance, budget)
+
+        locked = list(
+            db.scalars(
+                select(Reconciliation)
+                .where(
+                    Reconciliation.bank_account_id == bank.id,
+                    Reconciliation.status == "locked",
+                )
+                .order_by(Reconciliation.period_year.desc(), Reconciliation.period_month.desc())
+            )
+        )
+        last = locked[0] if locked else None
+        last_date = _period_end(last.period_year, last.period_month) if last else None
+        last_period = f"{last.period_year}-{last.period_month:02d}" if last else None
+        days_since = (today - last_date).days if last_date else None
+
+        current = db.scalar(
+            select(Reconciliation).where(
+                Reconciliation.bank_account_id == bank.id,
+                Reconciliation.period_year == today.year,
+                Reconciliation.period_month == today.month,
+            )
+        )
+        current_status = current.status if current else "not_started"
+        ent = entities.get(bank.entity_id)
+
+        rows.append(
+            ReconHealthRow(
+                bank_account_id=bank.id,
+                name=bank.name,
+                entity_code=ent.code if ent else "?",
+                currency=bank.currency,
+                balance=balance,
+                budget_balance=budget,
+                variance=variance,
+                variance_pct=variance_pct,
+                on_target=on_target,
+                target_status=target_status,
+                last_reconciled_date=last_date,
+                last_reconciled_period=last_period,
+                days_since_reconciled=days_since,
+                recon_freshness=_recon_freshness(last_date, today),
+                current_period_status=current_status,
+                href=f"/close?year={today.year}&month={today.month}&bank={bank.id}",
+            )
+        )
+    # Off-target / stale first
+    rank = {"below": 0, "above": 1, "no_budget": 2, "on_target": 3}
+    fresh = {"never": 0, "stale": 1, "prior": 2, "current": 3}
+    rows.sort(key=lambda r: (rank.get(r.target_status, 9), fresh.get(r.recon_freshness, 9), r.name))
+    return rows
 
 
 def build_dashboard(db: Session, reporting_currency: str | None = None) -> DashboardOut:
@@ -30,11 +138,12 @@ def build_dashboard(db: Session, reporting_currency: str | None = None) -> Dashb
     year = today.year
 
     # Cash by account
-    banks = db.scalars(select(BankAccount).where(BankAccount.is_active == True)).all()
+    banks = list(db.scalars(select(BankAccount).where(BankAccount.is_active == True)).all())
     entities = {e.id: e for e in db.scalars(select(DimEntity)).all()}
     cash_rows: list[CashBalanceRow] = []
     cash_by_ccy: dict[str, Decimal] = defaultdict(lambda: Decimal("0"))
     consolidated_cash = Decimal("0")
+    book_balances: dict[int, Decimal] = {}
 
     for bank in banks:
         total = db.scalar(
@@ -44,6 +153,7 @@ def build_dashboard(db: Session, reporting_currency: str | None = None) -> Dashb
             )
         )
         bal = Decimal(bank.opening_balance) + Decimal(total or 0)
+        book_balances[bank.id] = bal
         reporting, _ = translate_amount(
             db,
             amount=bal,
@@ -64,6 +174,14 @@ def build_dashboard(db: Session, reporting_currency: str | None = None) -> Dashb
                 balance_reporting=reporting,
             )
         )
+
+    recon_health = build_recon_health(
+        db,
+        banks=banks,
+        entities=entities,
+        balances=book_balances,
+        today=today,
+    )
 
     # P&L YTD
     is_filter = ReportFilter(
@@ -282,6 +400,7 @@ def build_dashboard(db: Session, reporting_currency: str | None = None) -> Dashb
     return DashboardOut(
         kpis=kpis,
         cash_by_account=cash_rows,
+        recon_health=recon_health,
         outstanding_reconciliations=int(outstanding_recons),
         uncategorized_transactions=int(uncategorized),
         unmatched_intercompany=int(unmatched_ic),

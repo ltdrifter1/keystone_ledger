@@ -1118,6 +1118,22 @@ a.kpi {
   color: inherit;
 }
 
+.recon-health-panel {
+  margin-bottom: 0.85rem;
+}
+
+.recon-health-table td {
+  vertical-align: top;
+}
+
+.recon-health-row.below {
+  background: rgba(240, 194, 122, 0.06);
+}
+
+.recon-health-row.above {
+  background: rgba(61, 220, 151, 0.04);
+}
+
 /* —— Statement Close Pack —— */
 .close-pack-layout {
   display: grid;

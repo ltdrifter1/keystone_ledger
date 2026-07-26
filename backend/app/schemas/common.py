@@ -82,6 +82,7 @@ class BankAccountOut(ORMModel):
     institution: Optional[str] = None
     gl_account_id: Optional[int] = None
     opening_balance: Decimal
+    budget_balance: Optional[Decimal] = None
     is_active: bool
 
 
@@ -93,6 +94,7 @@ class BankAccountCreate(BaseModel):
     institution: Optional[str] = None
     gl_account_id: Optional[int] = None
     opening_balance: Decimal = Decimal("0")
+    budget_balance: Optional[Decimal] = None
 
 
 class FxRateOut(ORMModel):

@@ -93,6 +93,7 @@ def seed_all(db: Session) -> None:
             institution="RBC",
             gl_account_id=by_code["1000"].id,
             opening_balance=Decimal("125000.00"),
+            budget_balance=Decimal("100000.00"),
         ),
         BankAccount(
             entity_id=ca.id,
@@ -102,6 +103,7 @@ def seed_all(db: Session) -> None:
             institution="RBC",
             gl_account_id=by_code["1000"].id,
             opening_balance=Decimal("42000.00"),
+            budget_balance=Decimal("45000.00"),
         ),
         BankAccount(
             entity_id=us.id,
@@ -111,6 +113,7 @@ def seed_all(db: Session) -> None:
             institution="Chase",
             gl_account_id=by_code["1000"].id,
             opening_balance=Decimal("88000.00"),
+            budget_balance=Decimal("90000.00"),
         ),
     ]
     db.add_all(banks)
