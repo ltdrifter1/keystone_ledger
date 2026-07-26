@@ -133,6 +133,27 @@ class CashBalanceRow(BaseModel):
     balance_reporting: Decimal
 
 
+class ReconHealthRow(BaseModel):
+    """At-a-glance reconciliation health for a bank account."""
+
+    bank_account_id: int
+    name: str
+    entity_code: str
+    currency: str
+    balance: Decimal
+    budget_balance: Optional[Decimal] = None
+    variance: Optional[Decimal] = None
+    variance_pct: Optional[Decimal] = None
+    on_target: Optional[bool] = None
+    target_status: str  # on_target | above | below | no_budget
+    last_reconciled_date: Optional[date] = None
+    last_reconciled_period: Optional[str] = None
+    days_since_reconciled: Optional[int] = None
+    recon_freshness: str  # current | prior | stale | never
+    current_period_status: str  # not_started | open | in_progress | completed | locked
+    href: str
+
+
 class DashboardNextAction(BaseModel):
     key: str
     kind: str
@@ -161,6 +182,7 @@ class DashboardCloseSummary(BaseModel):
 class DashboardOut(BaseModel):
     kpis: list[DashboardKPI]
     cash_by_account: list[CashBalanceRow]
+    recon_health: list[ReconHealthRow] = Field(default_factory=list)
     outstanding_reconciliations: int
     uncategorized_transactions: int
     unmatched_intercompany: int

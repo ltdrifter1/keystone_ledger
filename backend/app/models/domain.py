@@ -36,6 +36,8 @@ class BankAccount(Base):
     institution: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
     gl_account_id: Mapped[Optional[int]] = mapped_column(ForeignKey("dim_account.id"), nullable=True)
     opening_balance: Mapped[Decimal] = mapped_column(Numeric(18, 2), default=Decimal("0"))
+    # Controller cash target / budget ending balance for health checks
+    budget_balance: Mapped[Optional[Decimal]] = mapped_column(Numeric(18, 2), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 

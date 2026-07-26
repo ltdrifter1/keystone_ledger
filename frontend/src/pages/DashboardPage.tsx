@@ -213,35 +213,128 @@ export function DashboardPage() {
         })}
       </div>
 
-      <div className="grid-2">
-        <section className="panel">
-          <div className="panel-header">
-            <h2>Cash by account</h2>
-            <Link className="btn ghost" to={closeHref}>
-              Reconcile
-            </Link>
-          </div>
-          <div className="table-wrap" style={{ maxHeight: 360 }}>
-            <table className="data">
-              <thead>
+      <section className="panel recon-health-panel">
+        <div className="panel-header">
+          <h2>Reconciliation health</h2>
+          <span className="hint">Account · balance · last reconciled · vs budget</span>
+        </div>
+        <div className="table-wrap">
+          <table className="data recon-health-table">
+            <thead>
+              <tr>
+                <th>Account</th>
+                <th>Entity</th>
+                <th className="num">Balance</th>
+                <th className="num">Budget</th>
+                <th className="num">Variance</th>
+                <th>Target</th>
+                <th>Last reconciled</th>
+                <th>This month</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(data.recon_health ?? []).length === 0 && (
                 <tr>
-                  <th>Account</th>
-                  <th>Entity</th>
-                  <th className="num">Native</th>
-                  <th className="num">CAD</th>
+                  <td colSpan={8} className="hint">
+                    No bank accounts yet.
+                  </td>
                 </tr>
-              </thead>
-              <tbody>
-                {data.cash_by_account.map((row) => (
-                  <tr key={row.bank_account_id}>
+              )}
+              {(data.recon_health ?? []).map((row) => {
+                const targetClass =
+                  row.target_status === 'on_target'
+                    ? 'ok'
+                    : row.target_status === 'no_budget'
+                      ? ''
+                      : 'open'
+                const freshClass =
+                  row.recon_freshness === 'current' || row.recon_freshness === 'prior'
+                    ? 'ok'
+                    : 'open'
+                const targetLabel =
+                  row.target_status === 'on_target'
+                    ? 'On target'
+                    : row.target_status === 'above'
+                      ? 'Above budget'
+                      : row.target_status === 'below'
+                        ? 'Below budget'
+                        : 'No budget'
+                const lastLabel = row.last_reconciled_date
+                  ? `${row.last_reconciled_date}${
+                      row.days_since_reconciled != null ? ` · ${row.days_since_reconciled}d` : ''
+                    }`
+                  : 'Never'
+                return (
+                  <tr key={row.bank_account_id} className={`recon-health-row ${row.target_status}`}>
                     <td>
-                      <Link to={`${closeHref}&bank=${row.bank_account_id}`}>{row.name}</Link>
+                      <Link to={row.href}>{row.name}</Link>
+                      <div className="hint">{row.currency}</div>
                     </td>
                     <td>
                       <span className="badge">{row.entity_code}</span>
                     </td>
                     <td className="num">{money(row.balance, row.currency)}</td>
-                    <td className="num">{money(row.balance_reporting)}</td>
+                    <td className="num">
+                      {row.budget_balance == null ? '—' : money(row.budget_balance, row.currency)}
+                    </td>
+                    <td className="num">
+                      {row.variance == null ? (
+                        '—'
+                      ) : (
+                        <>
+                          {money(row.variance, row.currency)}
+                          {row.variance_pct != null && (
+                            <div className="hint">{Number(row.variance_pct).toFixed(1)}%</div>
+                          )}
+                        </>
+                      )}
+                    </td>
+                    <td>
+                      <span className={`badge ${targetClass}`}>{targetLabel}</span>
+                    </td>
+                    <td>
+                      <span className={`badge ${freshClass}`}>{lastLabel}</span>
+                      {row.last_reconciled_period && (
+                        <div className="hint">{row.last_reconciled_period}</div>
+                      )}
+                    </td>
+                    <td>
+                      <span
+                        className={`badge ${row.current_period_status === 'locked' ? 'ok' : row.current_period_status === 'not_started' ? '' : 'open'}`}
+                      >
+                        {row.current_period_status.replace('_', ' ')}
+                      </span>
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <div className="grid-2">
+        <section className="panel">
+          <div className="panel-header">
+            <h2>FX exposure</h2>
+          </div>
+          <div className="table-wrap" style={{ maxHeight: 220 }}>
+            <table className="data">
+              <thead>
+                <tr>
+                  <th>CCY</th>
+                  <th className="num">Native</th>
+                  <th className="num">Rate</th>
+                  <th className="num">CAD</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.fx_exposure.map((row) => (
+                  <tr key={String(row.currency)}>
+                    <td>{row.currency}</td>
+                    <td className="num">{money(row.native_balance as number)}</td>
+                    <td className="num">{Number(row.rate).toFixed(4)}</td>
+                    <td className="num">{money(row.reporting_balance as number)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -249,71 +342,41 @@ export function DashboardPage() {
           </div>
         </section>
 
-        <div style={{ display: 'grid', gap: '0.85rem' }}>
-          <section className="panel">
-            <div className="panel-header">
-              <h2>FX exposure</h2>
-            </div>
-            <div className="table-wrap" style={{ maxHeight: 180 }}>
-              <table className="data">
-                <thead>
+        <section className="panel">
+          <div className="panel-header">
+            <h2>Intercompany balances</h2>
+            <Link className="btn ghost" to={`${closeHref}&filter=intercompany`}>
+              Match
+            </Link>
+          </div>
+          <div className="table-wrap" style={{ maxHeight: 220 }}>
+            <table className="data">
+              <thead>
+                <tr>
+                  <th>From</th>
+                  <th>To</th>
+                  <th className="num">Balance</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.intercompany_balances.length === 0 && (
                   <tr>
-                    <th>CCY</th>
-                    <th className="num">Native</th>
-                    <th className="num">Rate</th>
-                    <th className="num">CAD</th>
+                    <td colSpan={3} className="hint">
+                      No open intercompany balances
+                    </td>
                   </tr>
-                </thead>
-                <tbody>
-                  {data.fx_exposure.map((row) => (
-                    <tr key={String(row.currency)}>
-                      <td>{row.currency}</td>
-                      <td className="num">{money(row.native_balance as number)}</td>
-                      <td className="num">{Number(row.rate).toFixed(4)}</td>
-                      <td className="num">{money(row.reporting_balance as number)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </section>
-
-          <section className="panel">
-            <div className="panel-header">
-              <h2>Intercompany balances</h2>
-              <Link className="btn ghost" to={`${closeHref}&filter=intercompany`}>
-                Match
-              </Link>
-            </div>
-            <div className="table-wrap" style={{ maxHeight: 180 }}>
-              <table className="data">
-                <thead>
-                  <tr>
-                    <th>From</th>
-                    <th>To</th>
-                    <th className="num">Balance</th>
+                )}
+                {data.intercompany_balances.map((row, i) => (
+                  <tr key={i}>
+                    <td>{row.from_entity}</td>
+                    <td>{row.to_entity}</td>
+                    <td className="num">{money(row.balance as number, String(row.currency))}</td>
                   </tr>
-                </thead>
-                <tbody>
-                  {data.intercompany_balances.length === 0 && (
-                    <tr>
-                      <td colSpan={3} className="hint">
-                        No open intercompany balances
-                      </td>
-                    </tr>
-                  )}
-                  {data.intercompany_balances.map((row, i) => (
-                    <tr key={i}>
-                      <td>{row.from_entity}</td>
-                      <td>{row.to_entity}</td>
-                      <td className="num">{money(row.balance as number, String(row.currency))}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </section>
-        </div>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
       </div>
 
       <WorkingPaperDrawer

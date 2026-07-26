@@ -7,6 +7,7 @@ from app.api import api_router
 from app.config import get_settings
 from app.database import SessionLocal, init_db
 from app.engines.working_papers import ensure_working_paper_foundation
+from app.services.ensure_budget import ensure_bank_budget_targets
 from app.services.seed import seed_if_empty
 
 settings = get_settings()
@@ -27,6 +28,9 @@ async def lifespan(_: FastAPI):
                 f"(+{foundation['accounts_created']} accounts, "
                 f"+{foundation['layouts_created']} BS lines)"
             )
+        budgets = ensure_bank_budget_targets(db)
+        if budgets:
+            print(f"Set budget targets on {budgets} bank account(s)")
     finally:
         db.close()
     yield
