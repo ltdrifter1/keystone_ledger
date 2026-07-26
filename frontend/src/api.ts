@@ -74,6 +74,31 @@ export type Transaction = {
   splits?: SplitLine[]
 }
 
+export type DashboardNextAction = {
+  key: string
+  kind: string
+  priority: number
+  title: string
+  detail: string
+  href: string
+  count?: number | null
+  amount?: number | null
+  status?: string | null
+}
+
+export type DashboardCloseSummary = {
+  period_year: number
+  period_month: number
+  period_label: string
+  banks_total: number
+  banks_locked: number
+  banks_ready_to_lock: number
+  banks_in_progress: number
+  can_lock_month: boolean
+  all_locked: boolean
+  blocking_total: number
+}
+
 export type Dashboard = {
   kpis: Array<{
     key: string
@@ -96,6 +121,8 @@ export type Dashboard = {
   unmatched_intercompany: number
   fx_exposure: Array<Record<string, number | string>>
   intercompany_balances: Array<Record<string, number | string>>
+  close_summary?: DashboardCloseSummary | null
+  next_actions?: DashboardNextAction[]
 }
 
 export type ReportFilters = {
@@ -249,11 +276,14 @@ export type ClosePackStatus = {
   beginning_balance: number
   statement_ending_balance?: number | null
   calculated_balance?: number | null
+  cleared_total?: number | null
   difference?: number | null
   cleared_count: number
   uncleared_count: number
   exception_count: number
   blocking_count: number
+  uncategorized_count?: number
+  duplicate_count?: number
   can_lock: boolean
   is_locked: boolean
   exceptions: CloseException[]
@@ -264,6 +294,21 @@ export type ClosePackStatus = {
   rules_applied?: number | null
 }
 
+export type CloseNextAction = {
+  key: string
+  kind: string
+  priority: number
+  title: string
+  detail: string
+  bank_account_id: number
+  bank_account_name?: string | null
+  reconciliation_id?: number | null
+  mode: string
+  filter?: string | null
+  count?: number | null
+  amount?: number | null
+}
+
 export type MonthCloseOverview = {
   period_year: number
   period_month: number
@@ -271,9 +316,11 @@ export type MonthCloseOverview = {
   banks_total: number
   banks_locked: number
   banks_ready_to_lock: number
+  banks_in_progress?: number
   can_lock_month: boolean
   all_locked: boolean
   packs: ClosePackStatus[]
+  next_actions: CloseNextAction[]
   newly_locked: number[]
   errors: Array<Record<string, unknown>>
 }

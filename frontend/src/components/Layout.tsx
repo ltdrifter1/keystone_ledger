@@ -3,7 +3,6 @@ import {
   LayoutDashboard,
   ArrowLeftRight,
   Landmark,
-  Scale,
   FileBarChart2,
   Settings,
   Sparkles,
@@ -12,10 +11,9 @@ import {
 
 const links = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard },
-  { to: '/close', label: 'Close Pack', icon: Sparkles },
+  { to: '/close', label: 'Close', icon: Sparkles },
   { to: '/working-papers', label: 'Working Papers', icon: ClipboardList },
   { to: '/transactions', label: 'Transactions', icon: ArrowLeftRight },
-  { to: '/reconciliation', label: 'Reconciliation', icon: Scale },
   { to: '/reports', label: 'Reports', icon: FileBarChart2 },
   { to: '/bank-accounts', label: 'Bank Accounts', icon: Landmark },
   { to: '/settings', label: 'Settings', icon: Settings },
@@ -40,9 +38,9 @@ export function Layout() {
           ))}
         </nav>
         <div className="nav-meta">
-          Month-end is an exception pass.
+          Close cockpit: next actions → exceptions → lock.
           <br />
-          Upload → auto-clear → lock.
+          Full register lives under All items.
           <br />
           <span className="kbd">/</span> search · <span className="kbd">R</span> rules ·{' '}
           <span className="kbd">S</span> split
