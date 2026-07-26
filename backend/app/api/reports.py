@@ -1,9 +1,10 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.engines.drilldown import drill_report_line
 from app.engines.reporting import build_report
-from app.schemas.reports import ReportFilter, ReportOut
+from app.schemas.reports import DrillOut, DrillRequest, ReportFilter, ReportOut
 
 router = APIRouter(prefix="/reports")
 
@@ -11,6 +12,14 @@ router = APIRouter(prefix="/reports")
 @router.post("/run", response_model=ReportOut)
 def run_report(filters: ReportFilter, db: Session = Depends(get_db)) -> ReportOut:
     return build_report(db, filters)
+
+
+@router.post("/drill", response_model=DrillOut)
+def drill(payload: DrillRequest, db: Session = Depends(get_db)) -> DrillOut:
+    try:
+        return drill_report_line(db, payload)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
 
 
 @router.get("/income-statement", response_model=ReportOut)

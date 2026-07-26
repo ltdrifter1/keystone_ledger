@@ -98,21 +98,80 @@ export type Dashboard = {
   intercompany_balances: Array<Record<string, number | string>>
 }
 
+export type ReportFilters = {
+  report_type: string
+  period?: string
+  year?: number | null
+  month?: number | null
+  quarter?: number | null
+  scenario_id: number
+  compare_scenario_id?: number | null
+  entity_ids?: number[] | null
+  department_ids?: number[] | null
+  reporting_currency?: string
+  consolidate?: boolean
+  as_of_date?: string | null
+  date_from?: string | null
+  date_to?: string | null
+}
+
+export type ReportLine = {
+  line_code: string
+  line_label: string
+  section: string
+  amount: string
+  compare_amount?: string
+  variance?: string
+  indent_level: number
+  is_bold: boolean
+  is_total: boolean
+  account_id?: number | null
+  drillable?: boolean
+  account_ids?: number[]
+  account_type_filter?: string | null
+  wp_ref?: string | null
+}
+
 export type Report = {
   report_type: string
   title: string
   currency: string
   generated_at: string
+  filters?: ReportFilters
+  lines: ReportLine[]
+}
+
+export type DrillOut = {
+  line_code: string
+  line_label: string
+  wp_ref?: string | null
+  report_type: string
+  currency: string
+  period_label: string
+  statement_amount: string
+  detail_total: string
+  difference: string
+  is_tied: boolean
+  row_count: number
+  generated_at: string
   lines: Array<{
-    line_code: string
-    line_label: string
-    section: string
-    amount: string
-    compare_amount?: string
-    variance?: string
-    indent_level: number
-    is_bold: boolean
-    is_total: boolean
+    transaction_id: number
+    txn_date: string
+    description: string
+    entity_id: number
+    entity_code?: string
+    bank_account_name?: string
+    account_id: number
+    account_code: string
+    account_name: string
+    native_amount: string
+    currency: string
+    reporting_amount: string
+    signed_amount: string
+    is_split: boolean
+    split_memo?: string
+    status: string
+    is_reconciled: boolean
   }>
 }
 
@@ -234,6 +293,18 @@ export const api = {
   },
   report: (body: Record<string, unknown>) =>
     request<Report>('/reports/run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }),
+  drillReport: (body: {
+    line_code: string
+    account_id?: number | null
+    account_ids?: number[] | null
+    account_type_filter?: string | null
+    filters: ReportFilters
+  }) =>
+    request<DrillOut>('/reports/drill', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),

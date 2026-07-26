@@ -59,7 +59,11 @@ def _iter_fact_lines(
     """
     q = (
         select(Transaction)
-        .options(joinedload(Transaction.splits))
+        .options(
+            joinedload(Transaction.splits),
+            joinedload(Transaction.bank_account),
+            joinedload(Transaction.entity),
+        )
         .where(
             Transaction.scenario_id == scenario_id,
             Transaction.txn_date >= date_from,
@@ -170,22 +174,40 @@ def build_report(db: Session, filters: ReportFilter) -> ReportOut:
 
     line_amounts: dict[str, Decimal] = {}
     lines: list[ReportLine] = []
+    section_refs = {"revenue": "A", "expense": "B", "asset": "C", "liability": "D", "equity": "E", "totals": "Z"}
+    section_counters: dict[str, int] = defaultdict(int)
 
     for layout in layouts:
         amount = Decimal("0")
+        drill_ids: list[int] = []
+        type_filter = layout.account_type_filter
+
         if layout.account_id:
             raw = totals.get(layout.account_id, Decimal("0"))
             acct = accounts.get(layout.account_id)
             amount = _signed_amount(acct, raw, report_type) if acct else raw
             if layout.sign_flip:
                 amount = -amount
+            drill_ids = [layout.account_id]
         elif layout.account_type_filter:
             for acct_id, raw in totals.items():
                 acct = accounts.get(acct_id)
                 if acct and acct.account_type == layout.account_type_filter:
                     amount += _signed_amount(acct, raw, report_type)
+                    drill_ids.append(acct_id)
+            # Also include zero-activity accounts of that type for completeness of filter
+            if not drill_ids:
+                drill_ids = [a.id for a in accounts.values() if a.account_type == layout.account_type_filter]
         elif layout.calc_formula:
             amount = _eval_formula(layout.calc_formula, line_amounts)
+            # Expand formula components into drillable account sets
+            if layout.line_code in ("NI", "NET_INCOME") or "NET" in layout.line_label.upper():
+                drill_ids = [
+                    a.id for a in accounts.values() if a.account_type in ("revenue", "expense") and a.is_active
+                ]
+            elif layout.section in ("revenue", "expense", "asset", "liability", "equity"):
+                drill_ids = [a.id for a in accounts.values() if a.account_type == layout.section and a.is_active]
+                type_filter = layout.section
 
         line_amounts[layout.line_code] = amount
 
@@ -204,12 +226,16 @@ def build_report(db: Session, filters: ReportFilter) -> ReportOut:
                     if acct and acct.account_type == layout.account_type_filter:
                         compare_amount += _signed_amount(acct, raw_c, report_type)
             elif layout.calc_formula:
-                # Recalculate using compare side by temporarily swapping — simplified:
                 compare_amount = None
             if compare_amount is not None:
                 variance = amount - compare_amount
                 if compare_amount != 0:
                     variance_pct = (variance / abs(compare_amount)) * Decimal("100")
+
+        section_counters[layout.section] += 1
+        prefix = section_refs.get(layout.section, "X")
+        wp_ref = f"{prefix}.{section_counters[layout.section]}"
+        drillable = bool(drill_ids)
 
         lines.append(
             ReportLine(
@@ -224,6 +250,10 @@ def build_report(db: Session, filters: ReportFilter) -> ReportOut:
                 is_bold=layout.is_bold,
                 is_total=layout.is_total,
                 account_id=layout.account_id,
+                drillable=drillable,
+                account_ids=drill_ids,
+                account_type_filter=type_filter,
+                wp_ref=wp_ref if drillable else None,
             )
         )
 
@@ -275,10 +305,13 @@ def _synthesize_report(
     wanted = type_order.get(filters.report_type, ["revenue", "expense", "asset", "liability", "equity"])
     lines: list[ReportLine] = []
     section_totals: dict[str, Decimal] = defaultdict(lambda: Decimal("0"))
+    section_refs = {"revenue": "A", "expense": "B", "asset": "C", "liability": "D", "equity": "E", "totals": "Z"}
+    section_counters: dict[str, int] = defaultdict(int)
 
     for acct_type in wanted:
         typed = [a for a in accounts.values() if a.account_type == acct_type and a.is_active]
         typed.sort(key=lambda a: (a.sort_order, a.code))
+        typed_ids: list[int] = []
         for acct in typed:
             raw = totals.get(acct.id, Decimal("0"))
             amount = _signed_amount(acct, raw, filters.report_type)
@@ -291,6 +324,8 @@ def _synthesize_report(
                 compare_amount = _signed_amount(acct, raw_c, filters.report_type)
                 variance = amount - compare_amount
             section_totals[acct_type] += amount
+            typed_ids.append(acct.id)
+            section_counters[acct_type] += 1
             lines.append(
                 ReportLine(
                     line_code=acct.code,
@@ -301,9 +336,13 @@ def _synthesize_report(
                     variance=variance,
                     indent_level=1,
                     account_id=acct.id,
+                    drillable=True,
+                    account_ids=[acct.id],
+                    wp_ref=f"{section_refs.get(acct_type, 'X')}.{section_counters[acct_type]}",
                 )
             )
         if acct_type in section_totals:
+            section_counters[acct_type] += 1
             lines.append(
                 ReportLine(
                     line_code=f"TOT_{acct_type.upper()}",
@@ -312,11 +351,18 @@ def _synthesize_report(
                     amount=section_totals[acct_type],
                     is_bold=True,
                     is_total=True,
+                    drillable=True,
+                    account_ids=typed_ids,
+                    account_type_filter=acct_type,
+                    wp_ref=f"{section_refs.get(acct_type, 'X')}.{section_counters[acct_type]}",
                 )
             )
 
     if filters.report_type == "income_statement":
         ni = section_totals.get("revenue", Decimal("0")) - section_totals.get("expense", Decimal("0"))
+        ni_ids = [
+            a.id for a in accounts.values() if a.account_type in ("revenue", "expense") and a.is_active
+        ]
         lines.append(
             ReportLine(
                 line_code="NET_INCOME",
@@ -325,6 +371,9 @@ def _synthesize_report(
                 amount=ni,
                 is_bold=True,
                 is_total=True,
+                drillable=True,
+                account_ids=ni_ids,
+                wp_ref="Z.1",
             )
         )
 
