@@ -27,7 +27,7 @@ def build_dashboard(db: Session, reporting_currency: str | None = None) -> Dashb
     year = today.year
 
     # Cash by account
-    banks = db.scalars(select(BankAccount).where(BankAccount.is_active.is_(True))).all()
+    banks = db.scalars(select(BankAccount).where(BankAccount.is_active == True)).all()
     entities = {e.id: e for e in db.scalars(select(DimEntity)).all()}
     cash_rows: list[CashBalanceRow] = []
     cash_by_ccy: dict[str, Decimal] = defaultdict(lambda: Decimal("0"))
@@ -121,7 +121,7 @@ def build_dashboard(db: Session, reporting_currency: str | None = None) -> Dashb
     uncategorized = db.scalar(
         select(func.count()).select_from(Transaction).where(
             Transaction.status == "uncategorized",
-            Transaction.is_split.is_(False),
+            Transaction.is_split == False,
         )
     ) or 0
 

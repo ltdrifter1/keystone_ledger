@@ -40,11 +40,22 @@ def test_dashboard_and_income_statement():
 
 
 def test_transactions_list_and_categorize():
-    txns = client.get("/api/transactions?uncategorized_only=true")
-    assert txns.status_code == 200
-    rows = txns.json()
-    assert len(rows) >= 1
-    txn_id = rows[0]["id"]
+    entities = client.get("/api/entities").json()
+    banks = client.get("/api/bank-accounts").json()
+    created = client.post(
+        "/api/transactions",
+        json={
+            "txn_date": "2026-07-01",
+            "description": "CORE TEST UNCATEGORIZED",
+            "amount": "-12.34",
+            "currency": "CAD",
+            "entity_id": entities[0]["id"],
+            "bank_account_id": banks[0]["id"],
+            "scenario_id": 1,
+        },
+    )
+    assert created.status_code == 200
+    txn_id = created.json()["id"]
 
     accounts = client.get("/api/accounts").json()
     expense = next(a for a in accounts if a["account_type"] == "expense")

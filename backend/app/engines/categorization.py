@@ -5,6 +5,7 @@ from decimal import Decimal
 from sqlalchemy.orm import Session
 
 from app.engines.audit import audit_field_changes, write_audit
+from app.engines.period_locks import assert_txn_editable
 from app.engines.rules import create_rule_from_transaction
 from app.models import Transaction, TransactionSplit
 from app.schemas.transactions import CategorizeRequest, SplitIn
@@ -16,6 +17,16 @@ def categorize_transaction(
     payload: CategorizeRequest,
     actor: str = "controller",
 ) -> Transaction:
+    assert_txn_editable(
+        db,
+        txn,
+        changing_fields={"account_id", "department_id", "counter_entity_id", "status"},
+    )
+    # Clearing a split via single-account categorize
+    if txn.is_split:
+        txn.splits.clear()
+        txn.is_split = False
+
     old_account = txn.account_id
     txn.account_id = payload.account_id
     if payload.department_id is not None:
@@ -51,6 +62,7 @@ def split_transaction(
     splits: list[SplitIn],
     actor: str = "controller",
 ) -> Transaction:
+    assert_txn_editable(db, txn, changing_fields={"account_id", "status"})
     if not splits:
         raise ValueError("At least one split line is required")
 
@@ -87,6 +99,7 @@ def split_transaction(
 
 
 def clear_splits(db: Session, txn: Transaction, account_id: int, actor: str = "controller") -> Transaction:
+    assert_txn_editable(db, txn, changing_fields={"account_id", "status"})
     txn.splits.clear()
     txn.is_split = False
     txn.account_id = account_id

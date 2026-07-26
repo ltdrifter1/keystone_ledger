@@ -52,7 +52,7 @@ def apply_rules_to_transaction(
         rules = list(
             db.scalars(
                 select(CategorizationRule)
-                .where(CategorizationRule.is_active.is_(True))
+                .where(CategorizationRule.is_active == True)
                 .order_by(CategorizationRule.priority.asc(), CategorizationRule.id.asc())
             )
         )
@@ -84,7 +84,7 @@ def apply_rules_batch(db: Session, transactions: list[Transaction], actor: str =
     rules = list(
         db.scalars(
             select(CategorizationRule)
-            .where(CategorizationRule.is_active.is_(True))
+            .where(CategorizationRule.is_active == True)
             .order_by(CategorizationRule.priority.asc(), CategorizationRule.id.asc())
         )
     )

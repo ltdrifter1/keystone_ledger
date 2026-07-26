@@ -25,7 +25,7 @@ def find_intercompany_candidates(db: Session, lookback_days: int = 7) -> list[In
     transfer_accounts = set(
         db.scalars(
             select(DimAccount.id).where(
-                (DimAccount.is_intercompany.is_(True)) | (DimAccount.account_type == "transfer")
+                (DimAccount.is_intercompany == True) | (DimAccount.account_type == "transfer")
             )
         )
     )
@@ -136,7 +136,7 @@ def unmatched_intercompany_count(db: Session) -> int:
     transfer_accounts = set(
         db.scalars(
             select(DimAccount.id).where(
-                (DimAccount.is_intercompany.is_(True)) | (DimAccount.account_type == "transfer")
+                (DimAccount.is_intercompany == True) | (DimAccount.account_type == "transfer")
             )
         )
     )
