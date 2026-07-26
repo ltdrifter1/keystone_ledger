@@ -1,7 +1,9 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { ClipboardList, ExternalLink } from 'lucide-react'
-import { api, type WorkingPaperTemplate } from '../api'
+import { CheckCircle2, ClipboardList, ExternalLink, AlertTriangle } from 'lucide-react'
+import { api, type BinderDocument, type BinderOut } from '../api'
+import { usePeriod } from '../period/PeriodContext'
+import { money } from '../lib/format'
 
 const SECTION_LABEL: Record<string, string> = {
   asset: 'Assets',
@@ -10,118 +12,133 @@ const SECTION_LABEL: Record<string, string> = {
   pnl: 'P&L',
 }
 
-function checklistStorageKey(templateKey: string) {
-  return `keystone.wp.checklist.${templateKey}`
-}
-
 export function WorkingPapersPage() {
+  const { year, month, setPeriod, label } = usePeriod()
   const [searchParams, setSearchParams] = useSearchParams()
-  const [templates, setTemplates] = useState<WorkingPaperTemplate[]>([])
+  const [binder, setBinder] = useState<BinderOut | null>(null)
+  const [doc, setDoc] = useState<BinderDocument | null>(null)
   const [activeKey, setActiveKey] = useState<string | null>(searchParams.get('key'))
-  const [checked, setChecked] = useState<Record<string, boolean>>({})
   const [error, setError] = useState<string | null>(null)
-  const [notes, setNotes] = useState('')
-  const [preparer, setPreparer] = useState('')
-  const [reviewer, setReviewer] = useState('')
+  const [saving, setSaving] = useState(false)
 
+  // Sync URL period → context
   useEffect(() => {
-    api
-      .workingPapers()
-      .then((res) => {
-        setTemplates(res.templates)
-        const fromUrl = searchParams.get('key')
-        if (fromUrl && res.templates.some((t) => t.key === fromUrl)) {
-          setActiveKey(fromUrl)
-        } else if (res.templates.length && !activeKey) {
-          setActiveKey(res.templates[0].key)
-        }
-      })
-      .catch((e) => setError((e as Error).message))
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- load once; URL key applied below
+    const y = searchParams.get('year')
+    const m = searchParams.get('month')
+    if (y && m) {
+      const yi = Number(y)
+      const mi = Number(m)
+      if (yi && mi && (yi !== year || mi !== month)) {
+        setPeriod(yi, mi)
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  useEffect(() => {
-    const fromUrl = searchParams.get('key')
-    if (fromUrl && templates.some((t) => t.key === fromUrl)) {
-      setActiveKey(fromUrl)
-    }
-  }, [searchParams, templates])
+  const loadBinder = useCallback(async () => {
+    const data = await api.binder(year, month)
+    setBinder(data)
+    return data
+  }, [year, month])
 
-  const active = useMemo(
-    () => templates.find((t) => t.key === activeKey) ?? null,
-    [templates, activeKey],
+  const loadDoc = useCallback(
+    async (key: string) => {
+      const data = await api.binderDocument(key, year, month)
+      setDoc(data)
+      return data
+    },
+    [year, month],
   )
 
   useEffect(() => {
-    if (!active) return
-    try {
-      const raw = localStorage.getItem(checklistStorageKey(active.key))
-      if (!raw) {
-        setChecked({})
-        setNotes('')
-        setPreparer('')
-        setReviewer('')
-        return
-      }
-      const parsed = JSON.parse(raw) as {
-        checked?: number[]
-        notes?: string
-        preparer?: string
-        reviewer?: string
-      }
-      const map: Record<string, boolean> = {}
-      ;(parsed.checked ?? []).forEach((idx) => {
-        map[String(idx)] = true
+    setError(null)
+    loadBinder()
+      .then((data) => {
+        const fromUrl = searchParams.get('key')
+        const key =
+          fromUrl && data.documents.some((d) => d.key === fromUrl)
+            ? fromUrl
+            : activeKey && data.documents.some((d) => d.key === activeKey)
+              ? activeKey
+              : data.documents[0]?.key
+        if (key) {
+          setActiveKey(key)
+          return loadDoc(key)
+        }
       })
-      setChecked(map)
-      setNotes(parsed.notes ?? '')
-      setPreparer(parsed.preparer ?? '')
-      setReviewer(parsed.reviewer ?? '')
-    } catch {
-      setChecked({})
-    }
-  }, [active])
+      .catch((e: Error) => setError(e.message))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loadBinder])
 
-  const persist = (nextChecked: Record<string, boolean>, nextNotes: string, nextPrep: string, nextRev: string) => {
-    if (!active) return
-    const idxs = Object.entries(nextChecked)
-      .filter(([, v]) => v)
-      .map(([k]) => Number(k))
-    localStorage.setItem(
-      checklistStorageKey(active.key),
-      JSON.stringify({
-        checked: idxs,
-        notes: nextNotes,
-        preparer: nextPrep,
-        reviewer: nextRev,
-      }),
-    )
+  useEffect(() => {
+    const params = new URLSearchParams()
+    params.set('year', String(year))
+    params.set('month', String(month))
+    if (activeKey) params.set('key', activeKey)
+    setSearchParams(params, { replace: true })
+  }, [year, month, activeKey, setSearchParams])
+
+  const selectDoc = async (key: string) => {
+    setActiveKey(key)
+    setError(null)
+    try {
+      await loadDoc(key)
+    } catch (e) {
+      setError((e as Error).message)
+    }
+  }
+
+  const persist = async (patch: {
+    checked?: number[]
+    notes?: string
+    preparer?: string
+    reviewer?: string
+    status?: string
+  }) => {
+    if (!activeKey) return
+    setSaving(true)
+    try {
+      const updated = await api.updateBinderDocument(activeKey, year, month, patch)
+      setDoc(updated)
+      await loadBinder()
+    } catch (e) {
+      setError((e as Error).message)
+    } finally {
+      setSaving(false)
+    }
   }
 
   const toggle = (idx: number) => {
-    const next = { ...checked, [String(idx)]: !checked[String(idx)] }
-    setChecked(next)
-    persist(next, notes, preparer, reviewer)
+    if (!doc) return
+    const set = new Set(doc.checked)
+    if (set.has(idx)) set.delete(idx)
+    else set.add(idx)
+    void persist({ checked: [...set].sort((a, b) => a - b) })
   }
 
-  const doneCount = active
-    ? active.procedures.filter((_, i) => checked[String(i)]).length
-    : 0
-
-  const reportTypeFor = (tmpl: WorkingPaperTemplate) =>
-    tmpl.statement === 'income_statement' ? 'income_statement' : 'balance_sheet'
+  const summary = binder?.summary
 
   return (
-    <div className="page">
-      <header className="page-header">
+    <div>
+      <div className="page-header">
         <div>
-          <h1>Working papers</h1>
+          <h1>Working paper binder</h1>
           <p>
-            Basic templates for each main section — procedures, evidence, and tie-out. Checklist progress is
-            saved in this browser.
+            Engagement file for {label} — live leads, procedures, and P/R sign-off.
           </p>
         </div>
-      </header>
+        {summary && (
+          <div className="toolbar">
+            <span className="badge ok">
+              {summary.prepared}/{summary.total} prepared
+            </span>
+            <span className="badge ok">{summary.reviewed} reviewed</span>
+            {summary.untied > 0 && (
+              <span className="badge open">{summary.untied} untied</span>
+            )}
+          </div>
+        )}
+      </div>
 
       {error && <div className="error">{error}</div>}
 
@@ -129,25 +146,36 @@ export function WorkingPapersPage() {
         <section className="panel">
           <div className="panel-header">
             <h2>
-              <ClipboardList size={16} /> Index
+              <ClipboardList size={16} /> Document manager
             </h2>
-            <span className="hint">{templates.length} sections</span>
+            <span className="hint">{binder?.documents.length ?? 0} docs</span>
           </div>
           <div className="wp-index">
-            {templates.map((tmpl) => (
+            {binder?.documents.map((row) => (
               <button
-                key={tmpl.key}
+                key={row.key}
                 type="button"
-                className={`wp-index-row ${activeKey === tmpl.key ? 'active' : ''}`}
-                onClick={() => {
-                  setActiveKey(tmpl.key)
-                  setSearchParams({ key: tmpl.key })
-                }}
+                className={`wp-index-row ${activeKey === row.key ? 'active' : ''}`}
+                onClick={() => void selectDoc(row.key)}
               >
-                <span className="wp-ref">{tmpl.wp_ref}</span>
+                <span className="wp-ref">{row.wp_ref}</span>
                 <span className="wp-index-title">
-                  <strong>{tmpl.title}</strong>
-                  <span className="hint">{SECTION_LABEL[tmpl.section] ?? tmpl.section}</span>
+                  <strong>{row.title}</strong>
+                  <span className="hint">
+                    {SECTION_LABEL[row.section] ?? row.section} · {money(row.statement_amount, row.currency)}
+                  </span>
+                  <span className="wp-index-flags">
+                    <span className={`badge ${row.status === 'reviewed' ? 'ok' : row.status === 'prepared' ? 'ok' : ''}`}>
+                      {row.status}
+                    </span>
+                    {row.is_tied === true && <span className="badge ok">tied</span>}
+                    {row.is_tied === false && <span className="badge open">untied</span>}
+                    {row.close_status && (
+                      <span className={`badge ${row.close_status === 'locked' ? 'ok' : 'open'}`}>
+                        close {row.close_status}
+                      </span>
+                    )}
+                  </span>
                 </span>
               </button>
             ))}
@@ -155,31 +183,75 @@ export function WorkingPapersPage() {
         </section>
 
         <section className="panel wp-pack-detail">
-          {!active && <p className="hint" style={{ padding: '1rem' }}>Select a section template.</p>}
-          {active && (
+          {!doc && <p className="hint" style={{ padding: '1rem' }}>Select a working paper.</p>}
+          {doc && (
             <>
               <div className="panel-header">
                 <h2>
-                  <span className="wp-ref">{active.wp_ref}</span> {active.title}
+                  <span className="wp-ref">{doc.wp_ref}</span> {doc.title}
                 </h2>
-                <Link className="btn ghost" to={`/reports?type=${reportTypeFor(active)}`}>
-                  Open statement <ExternalLink size={14} />
-                </Link>
+                <div className="toolbar">
+                  <Link className="btn ghost" to={doc.report_href}>
+                    Statement <ExternalLink size={14} />
+                  </Link>
+                  {doc.close_href && (
+                    <Link className="btn ghost" to={doc.close_href}>
+                      Close pack <ExternalLink size={14} />
+                    </Link>
+                  )}
+                </div>
               </div>
 
               <div className="wp-pack-body">
+                <div className="tie-strip close-tie">
+                  <div className="kpi">
+                    <div className="kpi-label">Statement</div>
+                    <div className="kpi-value" style={{ fontSize: '1rem' }}>
+                      {money(doc.drill?.statement_amount ?? doc.statement_amount, doc.currency)}
+                    </div>
+                  </div>
+                  <div className="kpi">
+                    <div className="kpi-label">Detail</div>
+                    <div className="kpi-value" style={{ fontSize: '1rem' }}>
+                      {doc.drill ? money(doc.drill.detail_total, doc.currency) : '—'}
+                    </div>
+                  </div>
+                  <div className={`kpi ${doc.is_tied ? 'ok' : 'warn'}`}>
+                    <div className="kpi-label">{doc.is_tied ? 'Tied' : 'Difference'}</div>
+                    <div className="kpi-value" style={{ fontSize: '1rem' }}>
+                      {doc.is_tied ? (
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                          <CheckCircle2 size={14} /> Balanced
+                        </span>
+                      ) : doc.difference == null ? (
+                        '—'
+                      ) : (
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                          <AlertTriangle size={14} /> {money(doc.difference, doc.currency)}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <div className={`kpi ${doc.status === 'reviewed' ? 'ok' : ''}`}>
+                    <div className="kpi-label">Status</div>
+                    <div className="kpi-value" style={{ fontSize: '1rem' }}>
+                      {doc.status}
+                    </div>
+                  </div>
+                </div>
+
                 <div className="wp-pack-meta">
                   <div>
                     <span>Purpose</span>
-                    <p>{active.purpose}</p>
+                    <p>{doc.purpose}</p>
                   </div>
                   <div>
                     <span>Objective</span>
-                    <p>{active.objective}</p>
+                    <p>{doc.objective}</p>
                   </div>
                   <div>
                     <span>Tie-out</span>
-                    <p className="wp-tieout">{active.tie_out}</p>
+                    <p className="wp-tieout">{doc.tie_out}</p>
                   </div>
                 </div>
 
@@ -188,16 +260,17 @@ export function WorkingPapersPage() {
                     <div className="wp-pack-section-head">
                       <h3>Procedures</h3>
                       <span className="hint">
-                        {doneCount}/{active.procedures.length} done
+                        {doc.procedures_done}/{doc.procedure_count}
+                        {saving ? ' · saving…' : ''}
                       </span>
                     </div>
                     <ol className="wp-procedure-list">
-                      {active.procedures.map((step, idx) => (
-                        <li key={idx} className={checked[String(idx)] ? 'done' : ''}>
+                      {doc.procedures.map((step, idx) => (
+                        <li key={idx} className={doc.checked.includes(idx) ? 'done' : ''}>
                           <label>
                             <input
                               type="checkbox"
-                              checked={!!checked[String(idx)]}
+                              checked={doc.checked.includes(idx)}
                               onChange={() => toggle(idx)}
                             />
                             <span>{step}</span>
@@ -205,6 +278,44 @@ export function WorkingPapersPage() {
                         </li>
                       ))}
                     </ol>
+
+                    {doc.drill && doc.drill.lines.length > 0 && (
+                      <>
+                        <div className="wp-pack-section-head" style={{ marginTop: '1.1rem' }}>
+                          <h3>Supporting schedule</h3>
+                          <span className="hint">{doc.drill.row_count} items</span>
+                        </div>
+                        <div className="table-wrap" style={{ maxHeight: 280 }}>
+                          <table className="data">
+                            <thead>
+                              <tr>
+                                <th>Date</th>
+                                <th>Description</th>
+                                <th>Account</th>
+                                <th className="num">Amount</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {doc.drill.lines.slice(0, 50).map((row, i) => (
+                                <tr key={`${row.transaction_id}-${i}`}>
+                                  <td>{row.txn_date}</td>
+                                  <td>
+                                    {row.description}
+                                    {row.entity_code && (
+                                      <div className="hint">{row.entity_code}</div>
+                                    )}
+                                  </td>
+                                  <td className="hint">
+                                    {row.account_code} {row.account_name}
+                                  </td>
+                                  <td className="num">{money(row.signed_amount)}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </>
+                    )}
                   </div>
 
                   <div>
@@ -212,7 +323,7 @@ export function WorkingPapersPage() {
                       <h3>Evidence</h3>
                     </div>
                     <ul className="wp-evidence-list">
-                      {active.evidence.map((item) => (
+                      {doc.evidence.map((item) => (
                         <li key={item}>{item}</li>
                       ))}
                     </ul>
@@ -224,38 +335,54 @@ export function WorkingPapersPage() {
                       <label>
                         Preparer
                         <input
-                          value={preparer}
-                          onChange={(e) => {
-                            setPreparer(e.target.value)
-                            persist(checked, notes, e.target.value, reviewer)
-                          }}
+                          value={doc.preparer ?? ''}
+                          onChange={(e) => setDoc({ ...doc, preparer: e.target.value })}
+                          onBlur={(e) => void persist({ preparer: e.target.value })}
                           placeholder="Initials"
                         />
                       </label>
                       <label>
                         Reviewer
                         <input
-                          value={reviewer}
-                          onChange={(e) => {
-                            setReviewer(e.target.value)
-                            persist(checked, notes, preparer, e.target.value)
-                          }}
+                          value={doc.reviewer ?? ''}
+                          onChange={(e) => setDoc({ ...doc, reviewer: e.target.value })}
+                          onBlur={(e) => void persist({ reviewer: e.target.value })}
                           placeholder="Initials"
                         />
                       </label>
                     </div>
+                    <div className="toolbar" style={{ marginBottom: '0.65rem' }}>
+                      <button
+                        className="btn"
+                        disabled={doc.status === 'prepared' || doc.status === 'reviewed'}
+                        onClick={() => void persist({ status: 'prepared', preparer: doc.preparer || 'C' })}
+                      >
+                        Mark prepared
+                      </button>
+                      <button
+                        className="btn primary"
+                        disabled={doc.status === 'reviewed'}
+                        onClick={() => void persist({ status: 'reviewed', reviewer: doc.reviewer || 'R' })}
+                      >
+                        Mark reviewed
+                      </button>
+                    </div>
                     <label className="wp-notes">
                       Notes
                       <textarea
-                        value={notes}
+                        value={doc.notes ?? ''}
                         rows={4}
-                        onChange={(e) => {
-                          setNotes(e.target.value)
-                          persist(checked, e.target.value, preparer, reviewer)
-                        }}
+                        onChange={(e) => setDoc({ ...doc, notes: e.target.value })}
+                        onBlur={(e) => void persist({ notes: e.target.value })}
                         placeholder="Exceptions, conclusions, open items…"
                       />
                     </label>
+                    {(doc.preparer_at || doc.reviewer_at) && (
+                      <p className="hint" style={{ marginTop: '0.5rem' }}>
+                        {doc.preparer_at && <>Prepared {new Date(doc.preparer_at).toLocaleString()} · </>}
+                        {doc.reviewer_at && <>Reviewed {new Date(doc.reviewer_at).toLocaleString()}</>}
+                      </p>
+                    )}
                   </div>
                 </div>
               </div>

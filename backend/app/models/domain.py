@@ -238,3 +238,27 @@ class Attachment(Base):
     storage_path: Mapped[str] = mapped_column(String(512))
     uploaded_by: Mapped[str] = mapped_column(String(64), default="system")
     uploaded_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class WorkingPaperDocument(Base):
+    """Period-scoped working paper state (CaseWare-style binder document)."""
+
+    __tablename__ = "working_paper_documents"
+    __table_args__ = (
+        UniqueConstraint("period_year", "period_month", "template_key", name="uq_wp_doc_period_key"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    period_year: Mapped[int] = mapped_column(Integer, index=True)
+    period_month: Mapped[int] = mapped_column(Integer, index=True)
+    template_key: Mapped[str] = mapped_column(String(64), index=True)
+    # open | prepared | reviewed
+    status: Mapped[str] = mapped_column(String(32), default="open", index=True)
+    checked_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # JSON list[int]
+    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    preparer: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    preparer_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    reviewer: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    reviewer_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_by: Mapped[str] = mapped_column(String(64), default="controller")

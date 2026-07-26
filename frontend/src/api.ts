@@ -144,6 +144,17 @@ export type Dashboard = {
   intercompany_balances: Array<Record<string, number | string>>
   close_summary?: DashboardCloseSummary | null
   next_actions?: DashboardNextAction[]
+  binder_summary?: {
+    period_year: number
+    period_month: number
+    period_label: string
+    total: number
+    prepared: number
+    reviewed: number
+    open: number
+    untied: number
+    href: string
+  } | null
 }
 
 export type ReportFilters = {
@@ -545,4 +556,109 @@ export const api = {
   workingPapers: () =>
     request<{ templates: WorkingPaperTemplate[]; count: number }>('/working-papers'),
   workingPaper: (key: string) => request<WorkingPaperTemplate>(`/working-papers/${key}`),
+  binder: (year: number, month: number) =>
+    request<BinderOut>(`/working-papers/binder?year=${year}&month=${month}`),
+  binderDocument: (key: string, year: number, month: number) =>
+    request<BinderDocument>(`/working-papers/binder/${key}?year=${year}&month=${month}`),
+  updateBinderDocument: (
+    key: string,
+    year: number,
+    month: number,
+    body: {
+      checked?: number[]
+      notes?: string | null
+      preparer?: string | null
+      reviewer?: string | null
+      status?: string | null
+    },
+  ) =>
+    request<BinderDocument>(`/working-papers/binder/${key}?year=${year}&month=${month}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }),
+}
+
+export type BinderDocumentIndex = {
+  key: string
+  wp_ref: string
+  title: string
+  statement: string
+  section: string
+  purpose: string
+  line_code: string
+  statement_amount: number
+  currency: string
+  is_tied?: boolean | null
+  difference?: number | null
+  status: string
+  procedure_count: number
+  procedures_done: number
+  procedure_pct: number
+  preparer?: string | null
+  preparer_at?: string | null
+  reviewer?: string | null
+  reviewer_at?: string | null
+  close_status?: string | null
+  href: string
+  report_href: string
+  close_href?: string | null
+}
+
+export type BinderOut = {
+  period_year: number
+  period_month: number
+  period_label: string
+  period_end: string
+  documents: BinderDocumentIndex[]
+  summary: {
+    total: number
+    prepared: number
+    reviewed: number
+    open: number
+    untied: number
+    cash_close?: {
+      banks_total: number
+      banks_locked: number
+      banks_ready_to_lock: number
+      all_locked: boolean
+      blocking_total: number
+    } | null
+  }
+}
+
+export type BinderDocument = BinderDocumentIndex & {
+  period_year: number
+  period_month: number
+  period_label: string
+  period_end: string
+  objective: string
+  tie_out: string
+  procedures: string[]
+  evidence: string[]
+  checked: number[]
+  notes?: string | null
+  drill?: {
+    line_code: string
+    line_label: string
+    wp_ref?: string | null
+    statement_amount: number
+    detail_total: number
+    difference: number
+    is_tied: boolean
+    row_count: number
+    period_label: string
+    currency: string
+    lines: Array<{
+      transaction_id: number
+      txn_date: string
+      description: string
+      entity_code?: string
+      account_code: string
+      account_name: string
+      signed_amount: number
+      currency: string
+      is_reconciled: boolean
+    }>
+  } | null
 }

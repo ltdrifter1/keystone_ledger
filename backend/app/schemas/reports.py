@@ -179,6 +179,18 @@ class DashboardCloseSummary(BaseModel):
     blocking_total: int = 0
 
 
+class DashboardBinderSummary(BaseModel):
+    period_year: int
+    period_month: int
+    period_label: str
+    total: int
+    prepared: int
+    reviewed: int
+    open: int
+    untied: int
+    href: str
+
+
 class DashboardOut(BaseModel):
     kpis: list[DashboardKPI]
     cash_by_account: list[CashBalanceRow]
@@ -190,3 +202,4 @@ class DashboardOut(BaseModel):
     intercompany_balances: list[dict] = Field(default_factory=list)
     close_summary: Optional[DashboardCloseSummary] = None
     next_actions: list[DashboardNextAction] = Field(default_factory=list)
+    binder_summary: Optional[DashboardBinderSummary] = None

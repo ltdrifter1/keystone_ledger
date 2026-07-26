@@ -16,6 +16,7 @@ from app.models.domain import (
     ReconciliationItem,
     Transaction,
     TransactionSplit,
+    WorkingPaperDocument,
 )
 
 __all__ = [
@@ -34,4 +35,5 @@ __all__ = [
     "ReconciliationItem",
     "Transaction",
     "TransactionSplit",
+    "WorkingPaperDocument",
 ]

@@ -8,6 +8,8 @@ import {
   Sparkles,
   ClipboardList,
 } from 'lucide-react'
+import { PeriodChip } from './PeriodChip'
+import { usePeriod } from '../period/PeriodContext'
 
 const links = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard },
@@ -20,6 +22,15 @@ const links = [
 ]
 
 export function Layout() {
+  const { year, month } = usePeriod()
+  const periodLinks = links.map((link) => {
+    if (link.to === '/close' || link.to === '/working-papers' || link.to === '/reports') {
+      const sep = link.to.includes('?') ? '&' : '?'
+      return { ...link, to: `${link.to}${sep}year=${year}&month=${month}` }
+    }
+    return link
+  })
+
   return (
     <div className="app-shell">
       <aside className="sidebar">
@@ -29,18 +40,22 @@ export function Layout() {
           </div>
           <div className="brand-sub">Controller reporting · bank to statements</div>
         </div>
+        <PeriodChip />
         <nav className="nav">
-          {links.map(({ to, label, icon: Icon }) => (
-            <NavLink key={to} to={to} end={to === '/'} className={({ isActive }) => (isActive ? 'active' : '')}>
+          {periodLinks.map(({ to, label, icon: Icon }) => (
+            <NavLink
+              key={label}
+              to={to}
+              end={to === '/'}
+              className={({ isActive }) => (isActive ? 'active' : '')}
+            >
               <Icon size={16} />
               {label}
             </NavLink>
           ))}
         </nav>
         <div className="nav-meta">
-          Close cockpit: next actions → exceptions → lock.
-          <br />
-          Full register lives under All items.
+          One engagement period for Close, Reports, and the WP binder.
           <br />
           <span className="kbd">/</span> search · <span className="kbd">R</span> rules ·{' '}
           <span className="kbd">S</span> split

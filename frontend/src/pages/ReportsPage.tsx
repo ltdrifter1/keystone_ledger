@@ -3,8 +3,15 @@ import { useSearchParams } from 'react-router-dom'
 import { api, type DrillOut, type Entity, type Report, type ReportFilters, type ReportLine, type Scenario } from '../api'
 import { WorkingPaperDrawer } from '../components/WorkingPaperDrawer'
 import { money } from '../lib/format'
+import { usePeriod } from '../period/PeriodContext'
+
+function periodEndIso(year: number, month: number) {
+  const d = new Date(year, month, 0)
+  return d.toISOString().slice(0, 10)
+}
 
 export function ReportsPage() {
+  const { year, month, setPeriod: setEngagementPeriod, label } = usePeriod()
   const [searchParams] = useSearchParams()
   const initialType = searchParams.get('type') || 'income_statement'
   const [reportType, setReportType] = useState(
@@ -12,7 +19,9 @@ export function ReportsPage() {
       ? initialType
       : 'income_statement',
   )
-  const [period, setPeriod] = useState('ytd')
+  const [reportPeriod, setReportPeriod] = useState(
+    searchParams.get('type') === 'balance_sheet' ? 'monthly' : 'ytd',
+  )
   const [entityId, setEntityId] = useState('')
   const [scenarioId, setScenarioId] = useState('1')
   const [compareScenarioId, setCompareScenarioId] = useState('')
@@ -38,23 +47,30 @@ export function ReportsPage() {
     const t = searchParams.get('type')
     if (t && ['income_statement', 'balance_sheet', 'cash_flow'].includes(t)) {
       setReportType(t)
+      if (t === 'balance_sheet') setReportPeriod('monthly')
     }
-  }, [searchParams])
+    const y = searchParams.get('year')
+    const m = searchParams.get('month')
+    if (y && m) setEngagementPeriod(Number(y), Number(m))
+  }, [searchParams, setEngagementPeriod])
+
+  const asOf = periodEndIso(year, month)
 
   const filters: ReportFilters = useMemo(
     () => ({
       report_type: reportType,
-      period,
-      year: new Date().getFullYear(),
-      month: new Date().getMonth() + 1,
+      period: reportType === 'balance_sheet' ? 'monthly' : reportPeriod,
+      year,
+      month,
       scenario_id: Number(scenarioId),
       reporting_currency: 'CAD',
       consolidate: !entityId,
       entity_ids: entityId ? [Number(entityId)] : null,
       compare_scenario_id: compareScenarioId ? Number(compareScenarioId) : null,
-      as_of_date: new Date().toISOString().slice(0, 10),
+      as_of_date: asOf,
+      date_to: asOf,
     }),
-    [reportType, period, scenarioId, entityId, compareScenarioId],
+    [reportType, reportPeriod, year, month, scenarioId, entityId, compareScenarioId, asOf],
   )
 
   const run = useCallback(async () => {
@@ -97,6 +113,15 @@ export function ReportsPage() {
     }
   }
 
+  // Deep-link from binder: ?line=BS_CASH
+  useEffect(() => {
+    const lineCode = searchParams.get('line')
+    if (!lineCode || !report) return
+    const line = report.lines.find((l) => l.line_code === lineCode)
+    if (line?.drillable) void openDrill(line)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [report, searchParams])
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && drawerOpen) {
@@ -112,7 +137,9 @@ export function ReportsPage() {
       <div className="page-header">
         <div>
           <h1>Reports</h1>
-          <p>Click any line to open the CaseWare-style working paper — detail that ties to the statement.</p>
+          <p>
+            Engagement period {label}. Click a line to drill — open the binder for the full WP document.
+          </p>
         </div>
         <div className="toolbar">
           <button className="btn primary" onClick={() => void run()} disabled={loading}>
@@ -127,7 +154,7 @@ export function ReportsPage() {
           <option value="balance_sheet">Balance Sheet</option>
           <option value="cash_flow">Cash Flow</option>
         </select>
-        <select className="select" value={period} onChange={(e) => setPeriod(e.target.value)}>
+        <select className="select" value={reportPeriod} onChange={(e) => setReportPeriod(e.target.value)}>
           <option value="monthly">Monthly</option>
           <option value="quarterly">Quarterly</option>
           <option value="ytd">YTD</option>
