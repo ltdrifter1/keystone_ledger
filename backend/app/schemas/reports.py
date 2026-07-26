@@ -82,6 +82,19 @@ class DrillLine(BaseModel):
     is_reconciled: bool = False
 
 
+class WorkingPaperSnippet(BaseModel):
+    """Embedded WP template shown on drill / working-paper drawer."""
+
+    key: str
+    wp_ref: str
+    title: str
+    purpose: str
+    objective: str
+    tie_out: str
+    procedures: list[str] = Field(default_factory=list)
+    evidence: list[str] = Field(default_factory=list)
+
+
 class DrillOut(BaseModel):
     line_code: str
     line_label: str
@@ -97,6 +110,7 @@ class DrillOut(BaseModel):
     row_count: int
     lines: list[DrillLine]
     generated_at: str
+    template: Optional[WorkingPaperSnippet] = None
 
 
 

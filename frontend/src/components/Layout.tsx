@@ -7,11 +7,13 @@ import {
   FileBarChart2,
   Settings,
   Sparkles,
+  ClipboardList,
 } from 'lucide-react'
 
 const links = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard },
   { to: '/close', label: 'Close Pack', icon: Sparkles },
+  { to: '/working-papers', label: 'Working Papers', icon: ClipboardList },
   { to: '/transactions', label: 'Transactions', icon: ArrowLeftRight },
   { to: '/reconciliation', label: 'Reconciliation', icon: Scale },
   { to: '/reports', label: 'Reports', icon: FileBarChart2 },

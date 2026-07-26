@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api import api_router
 from app.config import get_settings
 from app.database import SessionLocal, init_db
+from app.engines.working_papers import ensure_working_paper_foundation
 from app.services.seed import seed_if_empty
 
 settings = get_settings()
@@ -19,6 +20,13 @@ async def lifespan(_: FastAPI):
         seeded = seed_if_empty(db)
         if seeded:
             print("Seeded demo data (CA/US entities, chart, sample transactions)")
+        foundation = ensure_working_paper_foundation(db)
+        if foundation.get("accounts_created") or foundation.get("layouts_created"):
+            print(
+                "Working paper foundation ready "
+                f"(+{foundation['accounts_created']} accounts, "
+                f"+{foundation['layouts_created']} BS lines)"
+            )
     finally:
         db.close()
     yield

@@ -7,6 +7,7 @@ import { ReconciliationPage } from './pages/ReconciliationPage'
 import { ReportsPage } from './pages/ReportsPage'
 import { SettingsPage } from './pages/SettingsPage'
 import { TransactionsPage } from './pages/TransactionsPage'
+import { WorkingPapersPage } from './pages/WorkingPapersPage'
 
 export default function App() {
   return (
@@ -14,6 +15,7 @@ export default function App() {
       <Route element={<Layout />}>
         <Route index element={<DashboardPage />} />
         <Route path="close" element={<ClosePackPage />} />
+        <Route path="working-papers" element={<WorkingPapersPage />} />
         <Route path="transactions" element={<TransactionsPage />} />
         <Route path="reconciliation" element={<ReconciliationPage />} />
         <Route path="reports" element={<ReportsPage />} />
