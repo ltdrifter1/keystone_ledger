@@ -189,6 +189,67 @@ export type Reconciliation = {
   notes?: string
 }
 
+export type CloseException = {
+  kind: string
+  message: string
+  transaction_id: number
+  txn_date: string
+  description: string
+  amount: number
+  currency: string
+  status: string
+  is_split: boolean
+  is_duplicate: boolean
+  is_cleared: boolean
+  in_period: boolean
+  account_id?: number | null
+  account_code?: string | null
+  account_name?: string | null
+  blocking: boolean
+}
+
+export type ClosePackStatus = {
+  reconciliation_id?: number | null
+  bank_account_id: number
+  bank_account_name?: string | null
+  entity_code?: string | null
+  currency?: string | null
+  period_year: number
+  period_month: number
+  period_label: string
+  status: string
+  beginning_balance: number
+  statement_ending_balance?: number | null
+  calculated_balance?: number | null
+  difference?: number | null
+  cleared_count: number
+  uncleared_count: number
+  exception_count: number
+  blocking_count: number
+  can_lock: boolean
+  is_locked: boolean
+  exceptions: CloseException[]
+  locked_at?: string | null
+  locked_by?: string | null
+  created_reconciliation?: boolean | null
+  auto_cleared?: number | null
+  rules_applied?: number | null
+}
+
+export type MonthCloseOverview = {
+  period_year: number
+  period_month: number
+  period_label: string
+  banks_total: number
+  banks_locked: number
+  banks_ready_to_lock: number
+  can_lock_month: boolean
+  all_locked: boolean
+  packs: ClosePackStatus[]
+  newly_locked: number[]
+  errors: Array<Record<string, unknown>>
+}
+
 export type ReconWorkspace = {
   id: number
   bank_account_id: number
@@ -341,4 +402,48 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     }),
+  closeMonthOverview: (year: number, month: number) =>
+    request<MonthCloseOverview>(`/close-pack/month?year=${year}&month=${month}`),
+  runClosePack: async (args: {
+    bankAccountId: number
+    periodYear: number
+    periodMonth: number
+    statementEndingBalance: number
+    file?: File | null
+  }) => {
+    const fd = new FormData()
+    fd.append('bank_account_id', String(args.bankAccountId))
+    fd.append('period_year', String(args.periodYear))
+    fd.append('period_month', String(args.periodMonth))
+    fd.append('statement_ending_balance', String(args.statementEndingBalance))
+    if (args.file) fd.append('file', args.file)
+    return request<ClosePackStatus>('/close-pack/run', { method: 'POST', body: fd })
+  },
+  getClosePack: (reconId: number) => request<ClosePackStatus>(`/close-pack/${reconId}`),
+  refreshClosePack: (reconId: number) =>
+    request<ClosePackStatus>(`/close-pack/${reconId}/refresh`, { method: 'POST' }),
+  closeCategorizeException: (
+    reconId: number,
+    txnId: number,
+    body: { account_id: number; create_rule?: boolean; clear_after?: boolean },
+  ) =>
+    request<ClosePackStatus>(`/close-pack/${reconId}/exceptions/${txnId}/categorize`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }),
+  closeClearException: (reconId: number, txnId: number, is_cleared = true) =>
+    request<ClosePackStatus>(`/close-pack/${reconId}/exceptions/${txnId}/clear`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ is_cleared }),
+    }),
+  closeVoidDuplicate: (reconId: number, txnId: number) =>
+    request<ClosePackStatus>(`/close-pack/${reconId}/exceptions/${txnId}/void-duplicate`, {
+      method: 'POST',
+    }),
+  lockClosePack: (reconId: number) =>
+    request<ClosePackStatus>(`/close-pack/${reconId}/lock`, { method: 'POST' }),
+  lockMonth: (year: number, month: number) =>
+    request<MonthCloseOverview>(`/close-pack/month/lock?year=${year}&month=${month}`, { method: 'POST' }),
 }

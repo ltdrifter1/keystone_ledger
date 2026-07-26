@@ -91,8 +91,8 @@ export function DashboardPage() {
           <Link className="btn" to="/transactions?uncategorized_only=true">
             Review uncategorized
           </Link>
-          <Link className="btn primary" to="/reconciliation">
-            Open reconciliations
+          <Link className="btn primary" to="/close">
+            Statement Close Pack
           </Link>
         </div>
       </div>

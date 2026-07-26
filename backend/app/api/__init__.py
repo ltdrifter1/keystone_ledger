@@ -1,9 +1,10 @@
 from fastapi import APIRouter
 
-from app.api import dashboard, dimensions, imports, reconciliations, reports, rules, transactions
+from app.api import close_pack, dashboard, dimensions, imports, reconciliations, reports, rules, transactions
 
 api_router = APIRouter(prefix="/api")
 api_router.include_router(dashboard.router, tags=["dashboard"])
+api_router.include_router(close_pack.router, tags=["close-pack"])
 api_router.include_router(transactions.router, tags=["transactions"])
 api_router.include_router(imports.router, tags=["imports"])
 api_router.include_router(reconciliations.router, tags=["reconciliations"])

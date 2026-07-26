@@ -291,19 +291,23 @@ def clear_all(
 
 
 def uncleared_uncategorized_count(db: Session, recon: Reconciliation) -> int:
-    return (
-        db.scalar(
-            select(func.count())
-            .select_from(ReconciliationItem)
-            .join(Transaction, Transaction.id == ReconciliationItem.transaction_id)
-            .where(
-                ReconciliationItem.reconciliation_id == recon.id,
-                ReconciliationItem.is_cleared == True,
-                Transaction.is_split == False,
-                Transaction.status == "uncategorized",
-            )
+    """Count cleared-but-uncategorized items (Python-side for SQLite bool safety)."""
+    items = (
+        db.scalars(
+            select(ReconciliationItem)
+            .options(joinedload(ReconciliationItem.transaction))
+            .where(ReconciliationItem.reconciliation_id == recon.id)
         )
-        or 0
+        .unique()
+        .all()
+    )
+    return sum(
+        1
+        for item in items
+        if item.is_cleared
+        and item.transaction is not None
+        and not item.transaction.is_split
+        and item.transaction.status == "uncategorized"
     )
 
 
