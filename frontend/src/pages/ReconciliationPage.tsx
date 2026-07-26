@@ -1,44 +1,36 @@
-import { useEffect, useState } from 'react'
-import { api, type BankAccount, type Reconciliation } from '../api'
+import { useEffect, useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
+import { api, type BankAccount, type Reconciliation, type ReconWorkspace } from '../api'
 import { useToast } from '../hooks/useToast'
 import { money } from '../lib/format'
-
-type Item = {
-  id: number
-  transaction_id: number
-  is_cleared: boolean
-  txn_date: string
-  description: string
-  amount: number
-  currency: string
-}
 
 export function ReconciliationPage() {
   const [banks, setBanks] = useState<BankAccount[]>([])
   const [recons, setRecons] = useState<Reconciliation[]>([])
-  const [active, setActive] = useState<Reconciliation | null>(null)
-  const [items, setItems] = useState<Item[]>([])
+  const [workspace, setWorkspace] = useState<ReconWorkspace | null>(null)
   const [bankId, setBankId] = useState('')
   const [year, setYear] = useState(String(new Date().getFullYear()))
   const [month, setMonth] = useState(String(new Date().getMonth() + 1))
   const [ending, setEnding] = useState('')
+  const [showUnclearedOnly, setShowUnclearedOnly] = useState(false)
+  const [showUncategorizedOnly, setShowUncategorizedOnly] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const { toast, show } = useToast()
 
-  const refresh = async () => {
+  const refreshList = async () => {
     const [b, r] = await Promise.all([api.bankAccounts(), api.reconciliations()])
     setBanks(b)
     setRecons(r)
   }
 
   useEffect(() => {
-    refresh().catch((e: Error) => setError(e.message))
+    refreshList().catch((e: Error) => setError(e.message))
   }, [])
 
-  const openRecon = async (recon: Reconciliation) => {
-    setActive(recon)
-    const list = await api.reconItems(recon.id)
-    setItems(list)
+  const openWorkspace = async (id: number) => {
+    setError(null)
+    const ws = await api.reconWorkspace(id)
+    setWorkspace(ws)
   }
 
   const create = async () => {
@@ -50,31 +42,55 @@ export function ReconciliationPage() {
         statement_ending_balance: Number(ending),
       })
       show('Reconciliation created')
-      await refresh()
-      await openRecon(recon)
       setEnding('')
+      await refreshList()
+      await openWorkspace(recon.id)
     } catch (e) {
       setError((e as Error).message)
     }
   }
 
   const toggleClear = async (transactionId: number, isCleared: boolean) => {
-    if (!active) return
-    const updated = await api.clearReconItems(active.id, [transactionId], !isCleared)
-    setActive(updated)
-    setItems((prev) =>
-      prev.map((it) => (it.transaction_id === transactionId ? { ...it, is_cleared: !isCleared } : it)),
-    )
-    await refresh()
+    if (!workspace || workspace.status === 'locked') return
+    try {
+      await api.clearReconItems(workspace.id, [transactionId], !isCleared)
+      await openWorkspace(workspace.id)
+      await refreshList()
+    } catch (e) {
+      setError((e as Error).message)
+    }
+  }
+
+  const clearAllCategorized = async () => {
+    if (!workspace) return
+    try {
+      const ws = await api.clearAllRecon(workspace.id, true)
+      setWorkspace(ws)
+      show('Cleared all categorized items')
+      await refreshList()
+    } catch (e) {
+      setError((e as Error).message)
+    }
+  }
+
+  const sync = async () => {
+    if (!workspace) return
+    try {
+      const ws = await api.syncRecon(workspace.id)
+      setWorkspace(ws)
+      show(`Synced${ws.added ? ` · +${ws.added} items` : ''}`)
+    } catch (e) {
+      setError((e as Error).message)
+    }
   }
 
   const complete = async () => {
-    if (!active) return
+    if (!workspace) return
     try {
-      const updated = await api.completeRecon(active.id)
-      setActive(updated)
-      show('Reconciliation completed & locked')
-      await refresh()
+      await api.completeRecon(workspace.id)
+      show('Period locked')
+      await openWorkspace(workspace.id)
+      await refreshList()
     } catch (e) {
       setError((e as Error).message)
     }
@@ -82,12 +98,23 @@ export function ReconciliationPage() {
 
   const bankName = (id: number) => banks.find((b) => b.id === id)?.name ?? `#${id}`
 
+  const visibleItems = useMemo(() => {
+    if (!workspace) return []
+    return workspace.items.filter((it) => {
+      if (showUnclearedOnly && it.is_cleared) return false
+      if (showUncategorizedOnly && !(it.status === 'uncategorized' && !it.is_split)) return false
+      return true
+    })
+  }, [workspace, showUnclearedOnly, showUncategorizedOnly])
+
+  const diffZero = workspace ? Math.abs(workspace.difference) < 0.0001 : false
+
   return (
     <div>
       <div className="page-header">
         <div>
           <h1>Reconciliation</h1>
-          <p>Monthly bank reconciliations with cleared items, differences, and period locks.</p>
+          <p>Beginning balance → clear items → statement ending balance → lock period.</p>
         </div>
       </div>
 
@@ -109,7 +136,14 @@ export function ReconciliationPage() {
             </select>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
               <input className="input" type="number" value={year} onChange={(e) => setYear(e.target.value)} />
-              <input className="input" type="number" min={1} max={12} value={month} onChange={(e) => setMonth(e.target.value)} />
+              <input
+                className="input"
+                type="number"
+                min={1}
+                max={12}
+                value={month}
+                onChange={(e) => setMonth(e.target.value)}
+              />
             </div>
             <input
               className="input"
@@ -119,9 +153,10 @@ export function ReconciliationPage() {
               value={ending}
               onChange={(e) => setEnding(e.target.value)}
             />
-            <button className="btn primary" disabled={!bankId || !ending} onClick={() => void create()}>
+            <button className="btn primary" disabled={!bankId || ending === ''} onClick={() => void create()}>
               Create reconciliation
             </button>
+            <p className="hint">Prior open periods for the same account must be locked first.</p>
           </div>
 
           <div className="panel-header">
@@ -141,8 +176,8 @@ export function ReconciliationPage() {
                 {recons.map((r) => (
                   <tr
                     key={r.id}
-                    className={active?.id === r.id ? 'selected' : ''}
-                    onClick={() => void openRecon(r)}
+                    className={workspace?.id === r.id ? 'selected' : ''}
+                    onClick={() => void openWorkspace(r.id)}
                     style={{ cursor: 'pointer' }}
                   >
                     <td>
@@ -150,9 +185,7 @@ export function ReconciliationPage() {
                     </td>
                     <td>{bankName(r.bank_account_id)}</td>
                     <td>
-                      <span className={`badge ${r.status === 'locked' || r.status === 'completed' ? 'ok' : 'open'}`}>
-                        {r.status}
-                      </span>
+                      <span className={`badge ${r.status === 'locked' ? 'ok' : 'open'}`}>{r.status}</span>
                     </td>
                     <td className="num">{money(r.difference ?? 0)}</td>
                   </tr>
@@ -164,53 +197,137 @@ export function ReconciliationPage() {
 
         <section className="panel">
           <div className="panel-header">
-            <h2>{active ? `Workspace · ${active.period_year}-${String(active.period_month).padStart(2, '0')}` : 'Workspace'}</h2>
-            {active && (
-              <button className="btn primary" onClick={() => void complete()} disabled={active.status === 'locked'}>
-                Complete & lock
-              </button>
+            <h2>
+              {workspace
+                ? `Tie-out · ${workspace.period_year}-${String(workspace.period_month).padStart(2, '0')} · ${bankName(workspace.bank_account_id)}`
+                : 'Workspace'}
+            </h2>
+            {workspace && workspace.status !== 'locked' && (
+              <div className="toolbar">
+                <button className="btn" onClick={() => void sync()}>
+                  Sync items
+                </button>
+                <button className="btn" onClick={() => void clearAllCategorized()}>
+                  Clear categorized
+                </button>
+                <button className="btn primary" disabled={!workspace.can_lock} onClick={() => void complete()}>
+                  Complete & lock
+                </button>
+              </div>
             )}
           </div>
-          {!active && <p className="hint" style={{ padding: '1rem' }}>Select or create a reconciliation period.</p>}
-          {active && (
+
+          {!workspace && (
+            <p className="hint" style={{ padding: '1rem' }}>
+              Select or create a reconciliation period.
+            </p>
+          )}
+
+          {workspace && (
             <>
-              <div className="kpi-grid" style={{ padding: '0.85rem', marginBottom: 0, gridTemplateColumns: 'repeat(3, 1fr)' }}>
+              <div className="tie-strip">
+                <div className="kpi">
+                  <div className="kpi-label">Beginning</div>
+                  <div className="kpi-value" style={{ fontSize: '1rem' }}>
+                    {money(workspace.beginning_balance)}
+                  </div>
+                </div>
+                <div className="tie-op">+</div>
+                <div className="kpi">
+                  <div className="kpi-label">Cleared</div>
+                  <div className="kpi-value" style={{ fontSize: '1rem' }}>
+                    {money(workspace.cleared_total)}
+                  </div>
+                </div>
+                <div className="tie-op">=</div>
+                <div className="kpi">
+                  <div className="kpi-label">Book (cleared)</div>
+                  <div className="kpi-value" style={{ fontSize: '1rem' }}>
+                    {money(workspace.calculated_balance)}
+                  </div>
+                </div>
+                <div className="tie-op">vs</div>
                 <div className="kpi">
                   <div className="kpi-label">Statement</div>
-                  <div className="kpi-value" style={{ fontSize: '1rem' }}>{money(active.statement_ending_balance)}</div>
+                  <div className="kpi-value" style={{ fontSize: '1rem' }}>
+                    {money(workspace.statement_ending_balance)}
+                  </div>
                 </div>
-                <div className="kpi">
-                  <div className="kpi-label">Cleared book</div>
-                  <div className="kpi-value" style={{ fontSize: '1rem' }}>{money(active.calculated_balance ?? 0)}</div>
-                </div>
-                <div className={`kpi ${Number(active.difference) === 0 ? 'ok' : 'warn'}`}>
+                <div className={`kpi ${diffZero ? 'ok' : 'warn'}`}>
                   <div className="kpi-label">Difference</div>
-                  <div className="kpi-value" style={{ fontSize: '1rem' }}>{money(active.difference ?? 0)}</div>
+                  <div className="kpi-value" style={{ fontSize: '1rem' }}>
+                    {money(workspace.difference)}
+                  </div>
                 </div>
               </div>
+
+              <div className="filters" style={{ padding: '0 0.85rem' }}>
+                <label className="btn ghost">
+                  <input
+                    type="checkbox"
+                    checked={showUnclearedOnly}
+                    onChange={(e) => setShowUnclearedOnly(e.target.checked)}
+                  />
+                  Uncleared only
+                </label>
+                <label className="btn ghost">
+                  <input
+                    type="checkbox"
+                    checked={showUncategorizedOnly}
+                    onChange={(e) => setShowUncategorizedOnly(e.target.checked)}
+                  />
+                  Uncategorized
+                </label>
+                {workspace.uncategorized_cleared_count > 0 && (
+                  <Link
+                    className="btn"
+                    to={`/transactions?bank_account_id=${workspace.bank_account_id}&uncategorized_only=true`}
+                  >
+                    Categorize {workspace.uncategorized_cleared_count} cleared
+                  </Link>
+                )}
+                {workspace.status === 'locked' && (
+                  <span className="badge ok">
+                    Locked {workspace.locked_at ? new Date(workspace.locked_at).toLocaleString() : ''} by{' '}
+                    {workspace.locked_by ?? 'controller'}
+                  </span>
+                )}
+              </div>
+
               <div className="table-wrap">
                 <table className="data">
                   <thead>
                     <tr>
-                      <th>Cleared</th>
+                      <th>Clr</th>
                       <th>Date</th>
                       <th>Description</th>
+                      <th>Account</th>
                       <th className="num">Amount</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {items.map((it) => (
-                      <tr key={it.id}>
+                    {visibleItems.map((it) => (
+                      <tr key={it.id} className={!it.in_period ? 'prior-item' : ''}>
                         <td>
                           <input
                             type="checkbox"
                             checked={it.is_cleared}
-                            disabled={active.status === 'locked'}
+                            disabled={workspace.status === 'locked'}
                             onChange={() => void toggleClear(it.transaction_id, it.is_cleared)}
                           />
                         </td>
-                        <td>{it.txn_date}</td>
+                        <td>
+                          {it.txn_date}
+                          {!it.in_period && <span className="badge">PRIOR</span>}
+                        </td>
                         <td>{it.description}</td>
+                        <td>
+                          {it.is_split
+                            ? 'Split'
+                            : it.account_code
+                              ? `${it.account_code} ${it.account_name}`
+                              : <span className="badge open">uncategorized</span>}
+                        </td>
                         <td className="num">{money(it.amount, it.currency)}</td>
                       </tr>
                     ))}
@@ -218,7 +335,8 @@ export function ReconciliationPage() {
                 </table>
               </div>
               <p className="hint" style={{ padding: '0.75rem 1rem' }}>
-                Uncleared {active.uncleared_count} · Cleared {active.cleared_count}. Difference must be zero to lock.
+                Uncleared {workspace.uncleared_count} ({money(workspace.uncleared_total)}) carry to next period.
+                Difference must be zero and cleared items categorized before lock.
               </p>
             </>
           )}

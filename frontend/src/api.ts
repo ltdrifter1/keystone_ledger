@@ -38,6 +38,14 @@ export type Rule = {
   hit_count: number
 }
 
+export type SplitLine = {
+  id?: number
+  account_id: number
+  amount: string | number
+  department_id?: number | null
+  memo?: string
+}
+
 export type Transaction = {
   id: number
   txn_date: string
@@ -53,6 +61,8 @@ export type Transaction = {
   is_split: boolean
   is_duplicate: boolean
   is_reconciled: boolean
+  is_period_locked?: boolean
+  is_editable?: boolean
   counterparty?: string
   reference?: string
   counter_entity_id?: number
@@ -61,7 +71,7 @@ export type Transaction = {
   account_code?: string
   account_name?: string
   bank_account_name?: string
-  splits?: Array<{ id: number; account_id: number; amount: string; memo?: string }>
+  splits?: SplitLine[]
 }
 
 export type Dashboard = {
@@ -120,6 +130,42 @@ export type Reconciliation = {
   notes?: string
 }
 
+export type ReconWorkspace = {
+  id: number
+  bank_account_id: number
+  period_year: number
+  period_month: number
+  status: string
+  beginning_balance: number
+  statement_ending_balance: number
+  cleared_total: number
+  uncleared_total: number
+  calculated_balance: number
+  difference: number
+  cleared_count: number
+  uncleared_count: number
+  uncategorized_cleared_count: number
+  can_lock: boolean
+  locked_at?: string | null
+  locked_by?: string | null
+  notes?: string | null
+  items: Array<{
+    id: number
+    transaction_id: number
+    is_cleared: boolean
+    txn_date: string
+    description: string
+    amount: number
+    currency: string
+    status: string
+    is_split: boolean
+    account_id?: number | null
+    account_code?: string | null
+    account_name?: string | null
+    in_period: boolean
+  }>
+}
+
 export const api = {
   health: () => request<{ status: string }>('/health'),
   dashboard: (ccy = 'CAD') => request<Dashboard>(`/dashboard?reporting_currency=${ccy}`),
@@ -137,19 +183,41 @@ export const api = {
     })
     return request<Transaction[]>(`/transactions?${qs}`)
   },
-  categorize: (id: number, body: { account_id: number; create_rule?: boolean; rule_name?: string }) =>
+  updateTransaction: (id: number, body: Record<string, unknown>) =>
+    request<Transaction>(`/transactions/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }),
+  categorize: (
+    id: number,
+    body: {
+      account_id: number
+      department_id?: number | null
+      counter_entity_id?: number | null
+      create_rule?: boolean
+      rule_name?: string
+    },
+  ) =>
     request<Transaction>(`/transactions/${id}/categorize`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     }),
   bulkCategorize: (transaction_ids: number[], account_id: number, create_rule = false) =>
-    request<{ categorized: number }>('/transactions/bulk-categorize', {
+    request<{ categorized: number; skipped_locked?: number }>('/transactions/bulk-categorize', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ transaction_ids, account_id, create_rule }),
     }),
-  applyRules: () => request<{ categorized: number }>('/transactions/apply-rules', { method: 'POST' }),
+  splitTransaction: (id: number, splits: Array<{ account_id: number; amount: number; memo?: string }>) =>
+    request<Transaction>(`/transactions/${id}/split`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ splits }),
+    }),
+  applyRules: () =>
+    request<{ categorized: number; skipped_locked?: number }>('/transactions/apply-rules', { method: 'POST' }),
   autoMatchIc: () => request<{ matched: number }>('/transactions/intercompany/auto-match', { method: 'POST' }),
   importBank: async (bankAccountId: number, file: File) => {
     const fd = new FormData()
@@ -182,23 +250,17 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     }),
-  reconItems: (id: number) =>
-    request<
-      Array<{
-        id: number
-        transaction_id: number
-        is_cleared: boolean
-        txn_date: string
-        description: string
-        amount: number
-        currency: string
-      }>
-    >(`/reconciliations/${id}/items`),
+  reconWorkspace: (id: number) => request<ReconWorkspace>(`/reconciliations/${id}/workspace`),
+  syncRecon: (id: number) => request<ReconWorkspace & { added?: number }>(`/reconciliations/${id}/sync`, { method: 'POST' }),
   clearReconItems: (id: number, transaction_ids: number[], is_cleared = true) =>
     request<Reconciliation>(`/reconciliations/${id}/clear`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ transaction_ids, is_cleared }),
+    }),
+  clearAllRecon: (id: number, onlyCategorized = true) =>
+    request<ReconWorkspace>(`/reconciliations/${id}/clear-all?only_categorized=${onlyCategorized}`, {
+      method: 'POST',
     }),
   completeRecon: (id: number) =>
     request<Reconciliation>(`/reconciliations/${id}/complete?lock=true`, { method: 'POST' }),

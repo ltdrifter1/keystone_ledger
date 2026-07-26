@@ -10,8 +10,9 @@ from app.database import get_db
 from app.engines.audit import write_audit
 from app.engines.categorization import categorize_transaction, split_transaction
 from app.engines.intercompany import auto_match_intercompany, find_intercompany_candidates
+from app.engines.period_locks import PeriodLockedError, assert_bank_period_open, assert_txn_editable, locked_recon_for_txn
 from app.engines.rules import apply_rules_batch
-from app.models import BankAccount, DimAccount, DimEntity, Transaction
+from app.models import Transaction
 from app.schemas.transactions import (
     BulkCategorizeRequest,
     CategorizeRequest,
@@ -25,7 +26,20 @@ from app.schemas.transactions import (
 router = APIRouter(prefix="/transactions")
 
 
-def _to_out(txn: Transaction) -> TransactionOut:
+def _load_txn(db: Session, txn_id: int) -> Transaction | None:
+    return db.scalars(
+        select(Transaction)
+        .options(
+            joinedload(Transaction.entity),
+            joinedload(Transaction.account),
+            joinedload(Transaction.bank_account),
+            joinedload(Transaction.splits),
+        )
+        .where(Transaction.id == txn_id)
+    ).first()
+
+
+def _to_out(db: Session, txn: Transaction) -> TransactionOut:
     data = TransactionOut.model_validate(txn)
     if txn.entity:
         data.entity_code = txn.entity.code
@@ -34,6 +48,9 @@ def _to_out(txn: Transaction) -> TransactionOut:
         data.account_name = txn.account.name
     if txn.bank_account:
         data.bank_account_name = txn.bank_account.name
+    locked = locked_recon_for_txn(db, txn)
+    data.is_period_locked = locked is not None
+    data.is_editable = locked is None and not txn.is_reconciled
     return data
 
 
@@ -86,11 +103,11 @@ def list_transactions(
     if date_to:
         q = q.where(Transaction.txn_date <= date_to)
     if uncategorized_only:
-        q = q.where(Transaction.status == "uncategorized", Transaction.is_split.is_(False))
+        q = q.where(Transaction.status == "uncategorized", Transaction.is_split == False)
     if unreconciled_only:
-        q = q.where(Transaction.is_reconciled.is_(False), Transaction.bank_account_id.is_not(None))
+        q = q.where(Transaction.is_reconciled == False, Transaction.bank_account_id.is_not(None))
     if duplicates_only:
-        q = q.where(Transaction.is_duplicate.is_(True))
+        q = q.where(Transaction.is_duplicate == True)
     if unmatched_ic_only:
         q = q.where(Transaction.counter_entity_id.is_not(None), Transaction.intercompany_match_id.is_(None))
     if search:
@@ -105,12 +122,18 @@ def list_transactions(
         )
 
     rows = db.scalars(q.offset(offset).limit(limit)).unique().all()
-    return [_to_out(t) for t in rows]
+    return [_to_out(db, t) for t in rows]
 
 
 @router.post("", response_model=TransactionOut)
 def create_transaction(payload: TransactionCreate, db: Session = Depends(get_db)) -> TransactionOut:
     from app.engines.importing import ensure_date_dimension
+
+    try:
+        if payload.bank_account_id:
+            assert_bank_period_open(db, payload.bank_account_id, payload.txn_date)
+    except PeriodLockedError as exc:
+        raise HTTPException(409, str(exc)) from exc
 
     txn = Transaction(**payload.model_dump())
     txn.date_key = ensure_date_dimension(db, txn.txn_date)
@@ -120,18 +143,8 @@ def create_transaction(payload: TransactionCreate, db: Session = Depends(get_db)
     db.flush()
     write_audit(db, entity_table="transactions", entity_id=txn.id, action="create", actor="controller")
     db.commit()
-    db.refresh(txn)
-    txn = db.scalars(
-        select(Transaction)
-        .options(
-            joinedload(Transaction.entity),
-            joinedload(Transaction.account),
-            joinedload(Transaction.bank_account),
-            joinedload(Transaction.splits),
-        )
-        .where(Transaction.id == txn.id)
-    ).first()
-    return _to_out(txn)
+    loaded = _load_txn(db, txn.id)
+    return _to_out(db, loaded)
 
 
 @router.patch("/{txn_id}", response_model=TransactionOut)
@@ -141,10 +154,22 @@ def update_transaction(txn_id: int, payload: TransactionUpdate, db: Session = De
         raise HTTPException(404, "Transaction not found")
 
     data = payload.model_dump(exclude_unset=True, exclude={"create_rule", "rule_name"})
+    try:
+        assert_txn_editable(db, txn, changing_fields=set(data.keys()))
+        if "txn_date" in data or "bank_account_id" in data:
+            bank_id = data.get("bank_account_id", txn.bank_account_id)
+            txn_date = data.get("txn_date", txn.txn_date)
+            if bank_id:
+                assert_bank_period_open(db, bank_id, txn_date)
+    except PeriodLockedError as exc:
+        raise HTTPException(409, str(exc)) from exc
+
     for k, v in data.items():
         setattr(txn, k, v)
     if "account_id" in data and data["account_id"]:
         txn.status = "categorized"
+        txn.is_split = False
+        txn.splits.clear()
 
     if payload.create_rule and txn.account_id:
         from app.engines.rules import create_rule_from_transaction
@@ -153,18 +178,8 @@ def update_transaction(txn_id: int, payload: TransactionUpdate, db: Session = De
 
     write_audit(db, entity_table="transactions", entity_id=txn.id, action="update", actor="controller")
     db.commit()
-
-    txn = db.scalars(
-        select(Transaction)
-        .options(
-            joinedload(Transaction.entity),
-            joinedload(Transaction.account),
-            joinedload(Transaction.bank_account),
-            joinedload(Transaction.splits),
-        )
-        .where(Transaction.id == txn_id)
-    ).first()
-    return _to_out(txn)
+    loaded = _load_txn(db, txn_id)
+    return _to_out(db, loaded)
 
 
 @router.post("/{txn_id}/categorize", response_model=TransactionOut)
@@ -172,43 +187,40 @@ def categorize(txn_id: int, payload: CategorizeRequest, db: Session = Depends(ge
     txn = db.get(Transaction, txn_id)
     if not txn:
         raise HTTPException(404, "Transaction not found")
-    categorize_transaction(db, txn, payload, actor="controller")
-    db.commit()
-    txn = db.scalars(
-        select(Transaction)
-        .options(
-            joinedload(Transaction.entity),
-            joinedload(Transaction.account),
-            joinedload(Transaction.bank_account),
-            joinedload(Transaction.splits),
-        )
-        .where(Transaction.id == txn_id)
-    ).first()
-    return _to_out(txn)
+    try:
+        categorize_transaction(db, txn, payload, actor="controller")
+        db.commit()
+    except PeriodLockedError as exc:
+        db.rollback()
+        raise HTTPException(409, str(exc)) from exc
+    loaded = _load_txn(db, txn_id)
+    return _to_out(db, loaded)
 
 
 @router.post("/bulk-categorize")
 def bulk_categorize(payload: BulkCategorizeRequest, db: Session = Depends(get_db)) -> dict:
-    from app.schemas.transactions import CategorizeRequest
-
     count = 0
+    skipped_locked = 0
     for txn_id in payload.transaction_ids:
         txn = db.get(Transaction, txn_id)
         if not txn:
             continue
-        categorize_transaction(
-            db,
-            txn,
-            CategorizeRequest(
-                account_id=payload.account_id,
-                department_id=payload.department_id,
-                create_rule=payload.create_rule and count == 0,
-            ),
-            actor="controller",
-        )
-        count += 1
+        try:
+            categorize_transaction(
+                db,
+                txn,
+                CategorizeRequest(
+                    account_id=payload.account_id,
+                    department_id=payload.department_id,
+                    create_rule=payload.create_rule and count == 0,
+                ),
+                actor="controller",
+            )
+            count += 1
+        except PeriodLockedError:
+            skipped_locked += 1
     db.commit()
-    return {"categorized": count}
+    return {"categorized": count, "skipped_locked": skipped_locked}
 
 
 @router.post("/{txn_id}/split", response_model=TransactionOut)
@@ -218,28 +230,31 @@ def split(txn_id: int, payload: SplitRequest, db: Session = Depends(get_db)) -> 
         raise HTTPException(404, "Transaction not found")
     try:
         split_transaction(db, txn, payload.splits, actor="controller")
+        db.commit()
+    except PeriodLockedError as exc:
+        db.rollback()
+        raise HTTPException(409, str(exc)) from exc
     except ValueError as exc:
+        db.rollback()
         raise HTTPException(400, str(exc)) from exc
-    db.commit()
-    txn = db.scalars(
-        select(Transaction)
-        .options(
-            joinedload(Transaction.entity),
-            joinedload(Transaction.account),
-            joinedload(Transaction.bank_account),
-            joinedload(Transaction.splits),
-        )
-        .where(Transaction.id == txn_id)
-    ).first()
-    return _to_out(txn)
+    loaded = _load_txn(db, txn_id)
+    return _to_out(db, loaded)
 
 
 @router.post("/apply-rules")
 def apply_rules(db: Session = Depends(get_db)) -> dict:
     txns = list(db.scalars(select(Transaction).where(Transaction.status == "uncategorized")))
-    count = apply_rules_batch(db, txns, actor="controller")
+    editable = []
+    skipped_locked = 0
+    for txn in txns:
+        try:
+            assert_txn_editable(db, txn, changing_fields={"account_id", "status"})
+            editable.append(txn)
+        except PeriodLockedError:
+            skipped_locked += 1
+    count = apply_rules_batch(db, editable, actor="controller")
     db.commit()
-    return {"categorized": count}
+    return {"categorized": count, "skipped_locked": skipped_locked}
 
 
 @router.get("/intercompany/candidates", response_model=list[IntercompanyMatchOut])

@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from app.engines.audit import write_audit
 from app.engines.fingerprint import transaction_fingerprint
 from app.engines.fx import translate_amount
+from app.engines.period_locks import PeriodLockedError, assert_bank_period_open
 from app.engines.rules import apply_rules_batch
 from app.models import BankAccount, DimDate, DimEntity, DimScenario, Transaction
 from app.schemas.transactions import ImportResult
@@ -141,6 +142,10 @@ def import_bank_file(
             if "date" not in row_dict or "description" not in row_dict:
                 raise ValueError("Missing required date/description columns")
             txn_date = _parse_date(row_dict["date"])
+            try:
+                assert_bank_period_open(db, bank_account_id, txn_date)
+            except PeriodLockedError as exc:
+                raise ValueError(str(exc)) from exc
             description = str(row_dict.get("description") or "").strip()
             if not description:
                 raise ValueError("Empty description")

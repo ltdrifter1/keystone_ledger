@@ -1,17 +1,20 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func, select
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.engines.reconciliation import (
+    clear_all,
     complete_reconciliation,
     create_reconciliation,
     lock_reconciliation,
+    recon_workspace,
     reconciliation_status_summary,
     set_cleared,
+    sync_reconciliation_items,
     unreconciled_transactions,
 )
-from app.models import Reconciliation, ReconciliationItem, Transaction
+from app.models import Reconciliation, ReconciliationItem
 from app.schemas.transactions import (
     ReconciliationClearRequest,
     ReconciliationCreate,
@@ -26,13 +29,13 @@ def _to_out(db: Session, recon: Reconciliation) -> ReconciliationOut:
     cleared = db.scalar(
         select(func.count()).where(
             ReconciliationItem.reconciliation_id == recon.id,
-            ReconciliationItem.is_cleared.is_(True),
+            ReconciliationItem.is_cleared == True,
         )
     ) or 0
     uncleared = db.scalar(
         select(func.count()).where(
             ReconciliationItem.reconciliation_id == recon.id,
-            ReconciliationItem.is_cleared.is_(False),
+            ReconciliationItem.is_cleared == False,
         )
     ) or 0
     out = ReconciliationOut.model_validate(recon)
@@ -91,28 +94,36 @@ def get_one(recon_id: int, db: Session = Depends(get_db)) -> ReconciliationOut:
     return _to_out(db, recon)
 
 
+@router.get("/{recon_id}/workspace")
+def workspace(recon_id: int, db: Session = Depends(get_db)) -> dict:
+    recon = db.get(Reconciliation, recon_id)
+    if not recon:
+        raise HTTPException(404, "Not found")
+    data = recon_workspace(db, recon)
+    db.commit()  # persist sync side-effects
+    return data
+
+
 @router.get("/{recon_id}/items")
 def get_items(recon_id: int, db: Session = Depends(get_db)) -> list[dict]:
-    items = db.scalars(
-        select(ReconciliationItem)
-        .options(joinedload(ReconciliationItem.transaction))
-        .where(ReconciliationItem.reconciliation_id == recon_id)
-    ).unique().all()
-    result = []
-    for item in items:
-        t = item.transaction
-        result.append(
-            {
-                "id": item.id,
-                "transaction_id": item.transaction_id,
-                "is_cleared": item.is_cleared,
-                "txn_date": t.txn_date.isoformat() if t else None,
-                "description": t.description if t else None,
-                "amount": float(t.amount) if t else None,
-                "currency": t.currency if t else None,
-            }
-        )
-    return result
+    recon = db.get(Reconciliation, recon_id)
+    if not recon:
+        raise HTTPException(404, "Not found")
+    data = recon_workspace(db, recon)
+    db.commit()
+    return data["items"]
+
+
+@router.post("/{recon_id}/sync")
+def sync(recon_id: int, db: Session = Depends(get_db)) -> dict:
+    recon = db.get(Reconciliation, recon_id)
+    if not recon:
+        raise HTTPException(404, "Not found")
+    if recon.status == "locked":
+        raise HTTPException(409, "Reconciliation is locked")
+    added = sync_reconciliation_items(db, recon)
+    db.commit()
+    return recon_workspace(db, recon) | {"added": added}
 
 
 @router.post("/{recon_id}/clear", response_model=ReconciliationOut)
@@ -125,6 +136,19 @@ def clear_items(recon_id: int, payload: ReconciliationClearRequest, db: Session 
         db.commit()
         db.refresh(recon)
         return _to_out(db, recon)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
+@router.post("/{recon_id}/clear-all")
+def clear_all_items(recon_id: int, only_categorized: bool = True, db: Session = Depends(get_db)) -> dict:
+    recon = db.get(Reconciliation, recon_id)
+    if not recon:
+        raise HTTPException(404, "Not found")
+    try:
+        clear_all(db, recon, only_categorized=only_categorized, actor="controller")
+        db.commit()
+        return recon_workspace(db, recon)
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
 
@@ -148,7 +172,10 @@ def lock(recon_id: int, db: Session = Depends(get_db)) -> ReconciliationOut:
     recon = db.get(Reconciliation, recon_id)
     if not recon:
         raise HTTPException(404, "Not found")
-    lock_reconciliation(db, recon, actor="controller")
-    db.commit()
-    db.refresh(recon)
-    return _to_out(db, recon)
+    try:
+        lock_reconciliation(db, recon, actor="controller")
+        db.commit()
+        db.refresh(recon)
+        return _to_out(db, recon)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
