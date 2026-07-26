@@ -10,6 +10,7 @@ from decimal import Decimal
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.engines.cash_wp import build_cash_recon_schedule, cash_signoff_allowed
 from app.engines.close_pack import month_close_overview
 from app.engines.drilldown import drill_report_line
 from app.engines.reporting import build_report
@@ -111,11 +112,12 @@ def _statement_amount_for_template(db: Session, template, year: int, month: int)
 def build_binder_index(db: Session, year: int, month: int) -> dict:
     docs = _load_docs(db, year, month)
     close = month_close_overview(db, year, month)
+    cash_schedule = build_cash_recon_schedule(db, year, month)
     cash_close = {
-        "banks_total": close["banks_total"],
-        "banks_locked": close["banks_locked"],
-        "banks_ready_to_lock": close["banks_ready_to_lock"],
-        "all_locked": close["all_locked"],
+        "banks_total": cash_schedule["banks_total"],
+        "banks_locked": cash_schedule["banks_locked"],
+        "banks_ready_to_lock": cash_schedule["banks_ready_or_locked"],
+        "all_locked": cash_schedule["all_locked"],
         "blocking_total": sum(int(p.get("blocking_count") or 0) for p in close["packs"]),
     }
 
@@ -139,6 +141,9 @@ def build_binder_index(db: Session, year: int, month: int) -> dict:
     for tmpl in list_templates():
         doc = docs.get(tmpl.key)
         checked = _checked_list(doc)
+        if tmpl.key == "cash":
+            # Merge recon-driven auto-checks into progress
+            checked = sorted(set(checked) | set(cash_schedule["auto_checked"]))
         procedure_count = len(tmpl.procedures)
         done = len(checked)
         if doc and doc.status == "reviewed":
@@ -150,36 +155,39 @@ def build_binder_index(db: Session, year: int, month: int) -> dict:
 
         line_code, amount, wp_ref = amount_for(tmpl)
 
-        # Tie status via drill totals for primary line
+        # Tie status: Cash uses bank recon proof; others use GL drill
         is_tied = None
         difference = None
-        try:
-            drill = drill_report_line(
-                db,
-                DrillRequest(
-                    line_code=line_code,
-                    filters=_report_filters(tmpl, year, month),
-                ),
-            )
-            is_tied = drill.is_tied
-            difference = float(drill.difference)
-            amount = Decimal(drill.statement_amount)
-            if drill.wp_ref:
-                wp_ref = drill.wp_ref
-        except ValueError:
-            is_tied = True if amount == 0 else None
-
-        close_status = None
         if tmpl.key == "cash":
-            close_status = (
-                "locked"
-                if cash_close["all_locked"]
-                else (
-                    "ready"
-                    if cash_close["banks_ready_to_lock"] == cash_close["banks_total"] and cash_close["banks_total"]
-                    else "in_progress"
+            amount = Decimal(str(cash_schedule["gl_statement_amount"]))
+            wp_ref = tmpl.wp_ref
+            is_tied = cash_schedule["is_tied"]
+            difference = float(cash_schedule["gl_vs_books_difference"])
+            if not cash_schedule["all_bank_tied"]:
+                # Prefer sum of open bank diffs when banks aren't tied
+                difference = sum(
+                    abs(float(b["difference"]))
+                    for b in cash_schedule["banks"]
+                    if b["difference"] is not None
                 )
-            )
+            close_status = cash_schedule["close_status"]
+        else:
+            close_status = None
+            try:
+                drill = drill_report_line(
+                    db,
+                    DrillRequest(
+                        line_code=line_code,
+                        filters=_report_filters(tmpl, year, month),
+                    ),
+                )
+                is_tied = drill.is_tied
+                difference = float(drill.difference)
+                amount = Decimal(drill.statement_amount)
+                if drill.wp_ref:
+                    wp_ref = drill.wp_ref
+            except ValueError:
+                is_tied = True if amount == 0 else None
 
         documents.append(
             {
@@ -220,6 +228,7 @@ def build_binder_index(db: Session, year: int, month: int) -> dict:
         "period_end": period_end(year, month).isoformat(),
         "documents": documents,
         "summary": summary,
+        "cash_schedule": cash_schedule,
     }
 
 
@@ -255,43 +264,48 @@ def get_binder_document(db: Session, year: int, month: int, key: str) -> dict:
     docs = _load_docs(db, year, month)
     doc = docs.get(key)
     checked = _checked_list(doc)
+    cash_schedule = binder.get("cash_schedule") if key == "cash" else None
+    if cash_schedule:
+        checked = sorted(set(checked) | set(cash_schedule["auto_checked"]))
 
     filters = _report_filters(tmpl, year, month)
     line_code = index_row["line_code"]
     drill_payload = None
-    try:
-        drill = drill_report_line(
-            db,
-            DrillRequest(line_code=line_code, filters=filters),
-        )
-        drill_payload = {
-            "line_code": drill.line_code,
-            "line_label": drill.line_label,
-            "wp_ref": drill.wp_ref,
-            "statement_amount": float(drill.statement_amount),
-            "detail_total": float(drill.detail_total),
-            "difference": float(drill.difference),
-            "is_tied": drill.is_tied,
-            "row_count": drill.row_count,
-            "period_label": drill.period_label,
-            "currency": drill.currency,
-            "lines": [
-                {
-                    "transaction_id": r.transaction_id,
-                    "txn_date": r.txn_date.isoformat(),
-                    "description": r.description,
-                    "entity_code": r.entity_code,
-                    "account_code": r.account_code,
-                    "account_name": r.account_name,
-                    "signed_amount": float(r.signed_amount),
-                    "currency": r.currency,
-                    "is_reconciled": r.is_reconciled,
-                }
-                for r in drill.lines[:200]
-            ],
-        }
-    except ValueError:
-        pass
+    # For cash, drill is secondary — bank schedule is the primary evidence
+    if key != "cash":
+        try:
+            drill = drill_report_line(
+                db,
+                DrillRequest(line_code=line_code, filters=filters),
+            )
+            drill_payload = {
+                "line_code": drill.line_code,
+                "line_label": drill.line_label,
+                "wp_ref": drill.wp_ref,
+                "statement_amount": float(drill.statement_amount),
+                "detail_total": float(drill.detail_total),
+                "difference": float(drill.difference),
+                "is_tied": drill.is_tied,
+                "row_count": drill.row_count,
+                "period_label": drill.period_label,
+                "currency": drill.currency,
+                "lines": [
+                    {
+                        "transaction_id": r.transaction_id,
+                        "txn_date": r.txn_date.isoformat(),
+                        "description": r.description,
+                        "entity_code": r.entity_code,
+                        "account_code": r.account_code,
+                        "account_name": r.account_name,
+                        "signed_amount": float(r.signed_amount),
+                        "currency": r.currency,
+                        "is_reconciled": r.is_reconciled,
+                    }
+                    for r in drill.lines[:200]
+                ],
+            }
+        except ValueError:
+            pass
 
     return {
         **index_row,
@@ -304,8 +318,14 @@ def get_binder_document(db: Session, year: int, month: int, key: str) -> dict:
         "procedures": list(tmpl.procedures),
         "evidence": list(tmpl.evidence),
         "checked": checked,
+        "procedures_done": len(checked),
+        "procedure_pct": round((len(checked) / len(tmpl.procedures)) * 100) if tmpl.procedures else 0,
         "notes": doc.notes if doc else None,
         "drill": drill_payload,
+        "cash_schedule": cash_schedule,
+        "can_prepare": cash_schedule["can_prepare"] if cash_schedule else True,
+        "can_review": cash_schedule["can_review"] if cash_schedule else True,
+        "gate_messages": cash_schedule["gate_messages"] if cash_schedule else [],
         "filters": filters.model_dump(mode="json"),
     }
 
@@ -344,20 +364,53 @@ def upsert_binder_document(
         db.add(doc)
 
     now = datetime.utcnow()
+    cash_schedule = build_cash_recon_schedule(db, year, month) if key == "cash" else None
+
     if checked is not None:
         # validate indices
         max_idx = len(tmpl.procedures) - 1
         clean = sorted({int(i) for i in checked if 0 <= int(i) <= max_idx})
+        if cash_schedule:
+            clean = sorted(set(clean) | set(cash_schedule["auto_checked"]))
         doc.checked_json = json.dumps(clean)
+    elif cash_schedule:
+        # Persist recon-driven auto-checks even when only signing off
+        existing = _checked_list(doc)
+        doc.checked_json = json.dumps(sorted(set(existing) | set(cash_schedule["auto_checked"])))
+
     if notes is not None:
         doc.notes = notes
+
+    # Resolve intended preparer/reviewer before gating status changes
+    next_preparer = doc.preparer
+    next_reviewer = doc.reviewer
     if preparer is not None:
-        doc.preparer = preparer.strip() or None
+        next_preparer = preparer.strip() or None
+    if reviewer is not None:
+        next_reviewer = reviewer.strip() or None
+
+    intended_status = status
+    if intended_status is None:
+        if reviewer is not None and next_reviewer:
+            intended_status = "reviewed"
+        elif preparer is not None and next_preparer and doc.status == "open":
+            intended_status = "prepared"
+
+    if key == "cash" and intended_status in ("prepared", "reviewed"):
+        cash_signoff_allowed(
+            cash_schedule or build_cash_recon_schedule(db, year, month),
+            status=intended_status,
+            preparer=next_preparer or (actor if intended_status == "prepared" else doc.preparer),
+            reviewer=next_reviewer or (actor if intended_status == "reviewed" else doc.reviewer),
+        )
+
+    if preparer is not None:
+        doc.preparer = next_preparer
         doc.preparer_at = now if doc.preparer else None
         if doc.preparer and doc.status == "open":
             doc.status = "prepared"
     if reviewer is not None:
-        doc.reviewer = reviewer.strip() or None
+        doc.reviewer = next_reviewer
         doc.reviewer_at = now if doc.reviewer else None
         if doc.reviewer:
             doc.status = "reviewed"
@@ -376,7 +429,6 @@ def upsert_binder_document(
             doc.reviewer = actor
             doc.reviewer_at = now
         if status == "open":
-            # keep checklist; clear sign-off optional — only clear reviewer
             doc.reviewer = None
             doc.reviewer_at = None
 

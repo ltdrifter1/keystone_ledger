@@ -1150,6 +1150,28 @@ a.kpi {
   margin-top: 0.25rem;
 }
 
+.cash-gate-banner {
+  display: flex;
+  gap: 0.65rem;
+  align-items: flex-start;
+  margin: 0 0 1rem;
+  padding: 0.75rem 0.9rem;
+  border-radius: 10px;
+  border: 1px solid rgba(240, 194, 122, 0.4);
+  background: rgba(240, 194, 122, 0.08);
+  font-size: 0.86rem;
+}
+
+.cash-gate-banner ul {
+  margin: 0.35rem 0 0;
+  padding-left: 1.1rem;
+}
+
+.cash-recon-table tfoot td {
+  font-weight: 600;
+  border-top: 1px solid rgba(240, 194, 122, 0.3);
+}
+
 .recon-health-panel {
   margin-bottom: 0.85rem;
 }

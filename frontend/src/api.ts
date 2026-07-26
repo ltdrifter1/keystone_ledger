@@ -627,6 +627,58 @@ export type BinderOut = {
   }
 }
 
+export type CashBankScheduleRow = {
+  bank_account_id: number
+  bank_account_name?: string | null
+  entity_code?: string | null
+  currency: string
+  reconciliation_id?: number | null
+  status: string
+  beginning_balance: number
+  book_balance: number
+  book_balance_reporting: number
+  book_cleared?: number | null
+  statement_ending_balance?: number | null
+  statement_reporting?: number | null
+  difference?: number | null
+  uncleared_count: number
+  blocking_count: number
+  prior_item_count: number
+  prior_samples: string[]
+  can_lock: boolean
+  is_locked: boolean
+  is_tied: boolean
+  href: string
+}
+
+export type CashReconSchedule = {
+  period_year: number
+  period_month: number
+  period_label: string
+  period_end: string
+  reporting_currency: string
+  banks: CashBankScheduleRow[]
+  gl_statement_amount: number
+  banks_book_reporting_total: number
+  banks_statement_reporting_total: number
+  gl_vs_books_difference: number
+  banks_total: number
+  banks_tied: number
+  banks_locked: number
+  banks_ready_or_locked: number
+  all_started: boolean
+  all_bank_tied: boolean
+  all_locked: boolean
+  all_ready_or_locked: boolean
+  gl_agrees: boolean
+  is_tied: boolean
+  can_prepare: boolean
+  can_review: boolean
+  gate_messages: string[]
+  auto_checked: number[]
+  close_status: string
+}
+
 export type BinderDocument = BinderDocumentIndex & {
   period_year: number
   period_month: number
@@ -638,6 +690,10 @@ export type BinderDocument = BinderDocumentIndex & {
   evidence: string[]
   checked: number[]
   notes?: string | null
+  cash_schedule?: CashReconSchedule | null
+  can_prepare?: boolean
+  can_review?: boolean
+  gate_messages?: string[]
   drill?: {
     line_code: string
     line_label: string
