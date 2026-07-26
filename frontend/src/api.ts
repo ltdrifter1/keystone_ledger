@@ -141,6 +141,33 @@ export type Report = {
   lines: ReportLine[]
 }
 
+export type WorkingPaperTemplate = {
+  key: string
+  wp_ref: string
+  title: string
+  statement: string
+  section: string
+  purpose: string
+  objective: string
+  tie_out: string
+  procedures: string[]
+  evidence: string[]
+  line_codes: string[]
+  account_codes: string[]
+  sort_order: number
+}
+
+export type WorkingPaperSnippet = {
+  key: string
+  wp_ref: string
+  title: string
+  purpose: string
+  objective: string
+  tie_out: string
+  procedures: string[]
+  evidence: string[]
+}
+
 export type DrillOut = {
   line_code: string
   line_label: string
@@ -154,6 +181,7 @@ export type DrillOut = {
   is_tied: boolean
   row_count: number
   generated_at: string
+  template?: WorkingPaperSnippet | null
   lines: Array<{
     transaction_id: number
     txn_date: string
@@ -446,4 +474,7 @@ export const api = {
     request<ClosePackStatus>(`/close-pack/${reconId}/lock`, { method: 'POST' }),
   lockMonth: (year: number, month: number) =>
     request<MonthCloseOverview>(`/close-pack/month/lock?year=${year}&month=${month}`, { method: 'POST' }),
+  workingPapers: () =>
+    request<{ templates: WorkingPaperTemplate[]; count: number }>('/working-papers'),
+  workingPaper: (key: string) => request<WorkingPaperTemplate>(`/working-papers/${key}`),
 }

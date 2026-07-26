@@ -235,6 +235,15 @@ def build_report(db: Session, filters: ReportFilter) -> ReportOut:
         section_counters[layout.section] += 1
         prefix = section_refs.get(layout.section, "X")
         wp_ref = f"{prefix}.{section_counters[layout.section]}"
+        # Prefer stable CaseWare-style refs from working-paper templates
+        from app.engines.working_papers import find_template
+
+        acct_codes = [accounts[i].code for i in drill_ids if i in accounts]
+        tmpl = find_template(line_code=layout.line_code, account_codes=acct_codes)
+        if tmpl and not layout.is_total:
+            wp_ref = tmpl.wp_ref
+        elif tmpl and layout.line_code in ("NI", "NET_INCOME", "TOT_REV", "TOT_EXP"):
+            wp_ref = tmpl.wp_ref
         drillable = bool(drill_ids)
 
         lines.append(
@@ -326,6 +335,14 @@ def _synthesize_report(
             section_totals[acct_type] += amount
             typed_ids.append(acct.id)
             section_counters[acct_type] += 1
+            from app.engines.working_papers import find_template
+
+            tmpl = find_template(line_code=acct.code, account_codes=[acct.code])
+            synth_ref = (
+                tmpl.wp_ref
+                if tmpl
+                else f"{section_refs.get(acct_type, 'X')}.{section_counters[acct_type]}"
+            )
             lines.append(
                 ReportLine(
                     line_code=acct.code,
@@ -338,7 +355,7 @@ def _synthesize_report(
                     account_id=acct.id,
                     drillable=True,
                     account_ids=[acct.id],
-                    wp_ref=f"{section_refs.get(acct_type, 'X')}.{section_counters[acct_type]}",
+                    wp_ref=synth_ref,
                 )
             )
         if acct_type in section_totals:

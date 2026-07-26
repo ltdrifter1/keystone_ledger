@@ -16,8 +16,15 @@ from app.engines.reporting import (
     _signed_amount,
     build_report,
 )
+from app.engines.working_papers import find_template
 from app.models import DimAccount, DimEntity, DimReportLayout
-from app.schemas.reports import DrillLine, DrillOut, DrillRequest, ReportFilter
+from app.schemas.reports import (
+    DrillLine,
+    DrillOut,
+    DrillRequest,
+    ReportFilter,
+    WorkingPaperSnippet,
+)
 
 
 def _period_label(filters: ReportFilter) -> str:
@@ -202,6 +209,22 @@ def drill_report_line(db: Session, payload: DrillRequest) -> DrillOut:
     difference = statement_amount - detail_total
     is_tied = abs(difference) < Decimal("0.02")
 
+    acct_codes = [accounts[i].code for i in account_ids if i in accounts]
+    tmpl = find_template(line_code=payload.line_code, account_codes=acct_codes, wp_ref=wp_ref)
+    template_snippet = None
+    if tmpl:
+        wp_ref = tmpl.wp_ref
+        template_snippet = WorkingPaperSnippet(
+            key=tmpl.key,
+            wp_ref=tmpl.wp_ref,
+            title=tmpl.title,
+            purpose=tmpl.purpose,
+            objective=tmpl.objective,
+            tie_out=tmpl.tie_out,
+            procedures=list(tmpl.procedures),
+            evidence=list(tmpl.evidence),
+        )
+
     return DrillOut(
         line_code=payload.line_code,
         line_label=line_label,
@@ -217,4 +240,5 @@ def drill_report_line(db: Session, payload: DrillRequest) -> DrillOut:
         row_count=len(detail),
         lines=detail,
         generated_at=datetime.utcnow().isoformat() + "Z",
+        template=template_snippet,
     )

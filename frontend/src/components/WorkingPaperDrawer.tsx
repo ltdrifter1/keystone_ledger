@@ -1,5 +1,6 @@
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { X, ExternalLink, CheckCircle2, AlertTriangle } from 'lucide-react'
+import { X, ExternalLink, CheckCircle2, AlertTriangle, ClipboardList } from 'lucide-react'
 import type { DrillOut } from '../api'
 import { money } from '../lib/format'
 
@@ -11,7 +12,63 @@ type Props = {
   onClose: () => void
 }
 
+function checklistStorageKey(templateKey: string) {
+  return `keystone.wp.checklist.${templateKey}`
+}
+
 export function WorkingPaperDrawer({ open, loading, error, data, onClose }: Props) {
+  const [checked, setChecked] = useState<Record<string, boolean>>({})
+  const template = data?.template ?? null
+
+  useEffect(() => {
+    if (!template) {
+      setChecked({})
+      return
+    }
+    try {
+      const raw = localStorage.getItem(checklistStorageKey(template.key))
+      if (!raw) {
+        setChecked({})
+        return
+      }
+      const parsed = JSON.parse(raw) as { checked?: number[] }
+      const map: Record<string, boolean> = {}
+      ;(parsed.checked ?? []).forEach((idx) => {
+        map[String(idx)] = true
+      })
+      setChecked(map)
+    } catch {
+      setChecked({})
+    }
+  }, [template?.key])
+
+  const toggle = (idx: number) => {
+    if (!template) return
+    const next = { ...checked, [String(idx)]: !checked[String(idx)] }
+    setChecked(next)
+    let notes = ''
+    let preparer = ''
+    let reviewer = ''
+    try {
+      const raw = localStorage.getItem(checklistStorageKey(template.key))
+      if (raw) {
+        const parsed = JSON.parse(raw) as { notes?: string; preparer?: string; reviewer?: string }
+        notes = parsed.notes ?? ''
+        preparer = parsed.preparer ?? ''
+        reviewer = parsed.reviewer ?? ''
+      }
+    } catch {
+      /* ignore */
+    }
+    const idxs = Object.entries(next)
+      .filter(([, v]) => v)
+      .map(([k]) => Number(k))
+    localStorage.setItem(
+      checklistStorageKey(template.key),
+      JSON.stringify({ checked: idxs, notes, preparer, reviewer }),
+    )
+  }
+
   return (
     <>
       <div className={`wp-scrim ${open ? 'open' : ''}`} onClick={onClose} />
@@ -69,6 +126,41 @@ export function WorkingPaperDrawer({ open, loading, error, data, onClose }: Prop
                   </strong>
                 </div>
               </div>
+
+              {template && (
+                <div className="wp-template-block">
+                  <div className="wp-template-head">
+                    <ClipboardList size={14} />
+                    <strong>{template.title} template</strong>
+                    <Link className="btn ghost" to={`/working-papers?key=${template.key}`}>
+                      Full pack <ExternalLink size={12} />
+                    </Link>
+                  </div>
+                  <p className="wp-template-purpose">{template.purpose}</p>
+                  <p className="hint wp-template-tie">
+                    <strong>Tie-out:</strong> {template.tie_out}
+                  </p>
+                  <ol className="wp-procedure-list compact">
+                    {template.procedures.slice(0, 4).map((step, idx) => (
+                      <li key={idx} className={checked[String(idx)] ? 'done' : ''}>
+                        <label>
+                          <input
+                            type="checkbox"
+                            checked={!!checked[String(idx)]}
+                            onChange={() => toggle(idx)}
+                          />
+                          <span>{step}</span>
+                        </label>
+                      </li>
+                    ))}
+                  </ol>
+                  {template.procedures.length > 4 && (
+                    <p className="hint" style={{ margin: '0.35rem 0 0' }}>
+                      +{template.procedures.length - 4} more in full pack
+                    </p>
+                  )}
+                </div>
+              )}
 
               <div className="wp-toolbar">
                 <span className="hint">Source transactions for this line</span>

@@ -50,10 +50,15 @@ def seed_all(db: Session) -> None:
     accounts = [
         DimAccount(code="1000", name="Cash & Banks", account_type="asset", statement="balance_sheet", is_cash=True, sort_order=10),
         DimAccount(code="1100", name="Accounts Receivable", account_type="asset", statement="balance_sheet", sort_order=20),
+        DimAccount(code="1200", name="Prepaid Expenses", account_type="asset", statement="balance_sheet", sort_order=25),
+        DimAccount(code="1300", name="Inventory", account_type="asset", statement="balance_sheet", sort_order=28),
         DimAccount(code="1500", name="Fixed Assets", account_type="asset", statement="balance_sheet", sort_order=30),
         DimAccount(code="2000", name="Accounts Payable", account_type="liability", statement="balance_sheet", normal_balance="credit", sort_order=40),
         DimAccount(code="2100", name="Accrued Liabilities", account_type="liability", statement="balance_sheet", normal_balance="credit", sort_order=50),
+        DimAccount(code="2200", name="Taxes Payable", account_type="liability", statement="balance_sheet", normal_balance="credit", sort_order=55),
+        DimAccount(code="2300", name="Loans Payable", account_type="liability", statement="balance_sheet", normal_balance="credit", sort_order=58),
         DimAccount(code="2500", name="Intercompany Payable", account_type="liability", statement="balance_sheet", normal_balance="credit", is_intercompany=True, sort_order=60),
+        DimAccount(code="2600", name="Shareholder Loan", account_type="liability", statement="balance_sheet", normal_balance="credit", sort_order=65),
         DimAccount(code="3000", name="Equity / Owner Capital", account_type="equity", statement="balance_sheet", normal_balance="credit", sort_order=70),
         DimAccount(code="4000", name="Operating Revenue", account_type="revenue", statement="income_statement", normal_balance="credit", sort_order=80, cash_flow_section="operating"),
         DimAccount(code="4100", name="Other Income", account_type="revenue", statement="income_statement", normal_balance="credit", sort_order=90, cash_flow_section="operating"),
@@ -150,6 +155,7 @@ def seed_all(db: Session) -> None:
                 is_total=total,
                 sort_order=order,
                 sign_flip=flip,
+                notes="wp:pnl_analysis" if code in ("NI", "TOT_REV", "TOT_EXP") else None,
             )
         )
 
@@ -279,3 +285,8 @@ def seed_all(db: Session) -> None:
         )
 
     db.commit()
+
+    # Balance Sheet layout + any missing WP section accounts
+    from app.engines.working_papers import ensure_working_paper_foundation
+
+    ensure_working_paper_foundation(db)
