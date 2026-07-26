@@ -26,6 +26,13 @@ def test_binder_index_has_all_sections():
         assert cash["line_code"]
         assert "href" in cash
         assert cash["report_href"].startswith("/reports?")
+        assert cash["close_href"] and cash["close_href"].startswith("/close?")
+        assert cash["close_status"] in ("in_progress", "ready", "locked")
+        assert binder["summary"].get("cash_close") is not None
+        detail = get_binder_document(db, today.year, today.month, "cash")
+        assert detail["cash_schedule"] is not None
+        assert "banks" in detail["cash_schedule"]
+        assert detail["can_prepare"] is False or detail["can_prepare"] is True
     finally:
         db.close()
 
@@ -35,11 +42,12 @@ def test_binder_signoff_persists():
     try:
         today = date.today()
         year, month = today.year, today.month
+        # Use a non-cash WP — Cash C.1 prepare/review is gated by bank recon readiness
         doc = upsert_binder_document(
             db,
             year=year,
             month=month,
-            key="cash",
+            key="ar",
             checked=[0, 1],
             preparer="AB",
             notes="Tie-out complete",
@@ -54,7 +62,7 @@ def test_binder_signoff_persists():
             db,
             year=year,
             month=month,
-            key="cash",
+            key="ar",
             reviewer="CD",
             status="reviewed",
         )
@@ -62,7 +70,7 @@ def test_binder_signoff_persists():
         assert reviewed["status"] == "reviewed"
         assert reviewed["reviewer"] == "CD"
 
-        again = get_binder_document(db, year, month, "cash")
+        again = get_binder_document(db, year, month, "ar")
         assert again["notes"] == "Tie-out complete"
         assert again["status"] == "reviewed"
     finally:

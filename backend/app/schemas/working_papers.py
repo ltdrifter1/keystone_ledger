@@ -104,6 +104,58 @@ class BinderDrill(BaseModel):
     lines: list[BinderDrillLine] = Field(default_factory=list)
 
 
+class CashBankScheduleRow(BaseModel):
+    bank_account_id: int
+    bank_account_name: Optional[str] = None
+    entity_code: Optional[str] = None
+    currency: str
+    reconciliation_id: Optional[int] = None
+    status: str
+    beginning_balance: float
+    book_balance: float
+    book_balance_reporting: float
+    book_cleared: Optional[float] = None
+    statement_ending_balance: Optional[float] = None
+    statement_reporting: Optional[float] = None
+    difference: Optional[float] = None
+    uncleared_count: int = 0
+    blocking_count: int = 0
+    prior_item_count: int = 0
+    prior_samples: list[str] = Field(default_factory=list)
+    can_lock: bool = False
+    is_locked: bool = False
+    is_tied: bool = False
+    href: str
+
+
+class CashReconSchedule(BaseModel):
+    period_year: int
+    period_month: int
+    period_label: str
+    period_end: str
+    reporting_currency: str = "CAD"
+    banks: list[CashBankScheduleRow] = Field(default_factory=list)
+    gl_statement_amount: float = 0
+    banks_book_reporting_total: float = 0
+    banks_statement_reporting_total: float = 0
+    gl_vs_books_difference: float = 0
+    banks_total: int = 0
+    banks_tied: int = 0
+    banks_locked: int = 0
+    banks_ready_or_locked: int = 0
+    all_started: bool = False
+    all_bank_tied: bool = False
+    all_locked: bool = False
+    all_ready_or_locked: bool = False
+    gl_agrees: bool = False
+    is_tied: bool = False
+    can_prepare: bool = False
+    can_review: bool = False
+    gate_messages: list[str] = Field(default_factory=list)
+    auto_checked: list[int] = Field(default_factory=list)
+    close_status: str = "in_progress"
+
+
 class BinderDocumentOut(BinderDocumentIndex):
     period_year: int
     period_month: int
@@ -116,6 +168,10 @@ class BinderDocumentOut(BinderDocumentIndex):
     checked: list[int] = Field(default_factory=list)
     notes: Optional[str] = None
     drill: Optional[BinderDrill] = None
+    cash_schedule: Optional[CashReconSchedule] = None
+    can_prepare: bool = True
+    can_review: bool = True
+    gate_messages: list[str] = Field(default_factory=list)
     filters: dict[str, Any] = Field(default_factory=dict)
 
 

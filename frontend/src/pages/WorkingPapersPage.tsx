@@ -205,15 +205,28 @@ export function WorkingPapersPage() {
               <div className="wp-pack-body">
                 <div className="tie-strip close-tie">
                   <div className="kpi">
-                    <div className="kpi-label">Statement</div>
+                    <div className="kpi-label">
+                      {doc.cash_schedule ? 'BS Cash' : 'Statement'}
+                    </div>
                     <div className="kpi-value" style={{ fontSize: '1rem' }}>
-                      {money(doc.drill?.statement_amount ?? doc.statement_amount, doc.currency)}
+                      {money(
+                        doc.cash_schedule?.gl_statement_amount ??
+                          doc.drill?.statement_amount ??
+                          doc.statement_amount,
+                        doc.currency,
+                      )}
                     </div>
                   </div>
                   <div className="kpi">
-                    <div className="kpi-label">Detail</div>
+                    <div className="kpi-label">
+                      {doc.cash_schedule ? 'Bank books' : 'Detail'}
+                    </div>
                     <div className="kpi-value" style={{ fontSize: '1rem' }}>
-                      {doc.drill ? money(doc.drill.detail_total, doc.currency) : '—'}
+                      {doc.cash_schedule
+                        ? money(doc.cash_schedule.banks_book_reporting_total, doc.currency)
+                        : doc.drill
+                          ? money(doc.drill.detail_total, doc.currency)
+                          : '—'}
                     </div>
                   </div>
                   <div className={`kpi ${doc.is_tied ? 'ok' : 'warn'}`}>
@@ -233,12 +246,30 @@ export function WorkingPapersPage() {
                     </div>
                   </div>
                   <div className={`kpi ${doc.status === 'reviewed' ? 'ok' : ''}`}>
-                    <div className="kpi-label">Status</div>
+                    <div className="kpi-label">
+                      {doc.cash_schedule ? 'Banks' : 'Status'}
+                    </div>
                     <div className="kpi-value" style={{ fontSize: '1rem' }}>
-                      {doc.status}
+                      {doc.cash_schedule
+                        ? `${doc.cash_schedule.banks_locked}/${doc.cash_schedule.banks_total} locked`
+                        : doc.status}
                     </div>
                   </div>
                 </div>
+
+                {doc.cash_schedule && (doc.gate_messages?.length ?? 0) > 0 && (
+                  <div className="cash-gate-banner">
+                    <AlertTriangle size={14} />
+                    <div>
+                      <strong>Cash sign-off gates</strong>
+                      <ul>
+                        {doc.gate_messages!.map((msg) => (
+                          <li key={msg}>{msg}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  </div>
+                )}
 
                 <div className="wp-pack-meta">
                   <div>
@@ -279,7 +310,93 @@ export function WorkingPapersPage() {
                       ))}
                     </ol>
 
-                    {doc.drill && doc.drill.lines.length > 0 && (
+                    {doc.cash_schedule && (
+                      <>
+                        <div className="wp-pack-section-head" style={{ marginTop: '1.1rem' }}>
+                          <h3>Bank recon schedule</h3>
+                          <span className="hint">
+                            {doc.cash_schedule.banks_tied}/{doc.cash_schedule.banks_total} tied ·{' '}
+                            {doc.cash_schedule.close_status}
+                          </span>
+                        </div>
+                        <div className="table-wrap" style={{ maxHeight: 320 }}>
+                          <table className="data cash-recon-table">
+                            <thead>
+                              <tr>
+                                <th>Bank</th>
+                                <th className="num">Book</th>
+                                <th className="num">Statement</th>
+                                <th className="num">Diff</th>
+                                <th>Status</th>
+                                <th></th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {doc.cash_schedule.banks.map((bank) => (
+                                <tr
+                                  key={bank.bank_account_id}
+                                  className={bank.is_tied ? '' : 'recon-health-row below'}
+                                >
+                                  <td>
+                                    <strong>{bank.bank_account_name}</strong>
+                                    <div className="hint">
+                                      {bank.entity_code} · {bank.currency}
+                                      {bank.uncleared_count > 0 && ` · ${bank.uncleared_count} uncleared`}
+                                      {bank.prior_item_count > 0 && ` · ${bank.prior_item_count} PRIOR`}
+                                      {bank.blocking_count > 0 && ` · ${bank.blocking_count} blocking`}
+                                    </div>
+                                  </td>
+                                  <td className="num">{money(bank.book_balance, bank.currency)}</td>
+                                  <td className="num">
+                                    {bank.statement_ending_balance == null
+                                      ? '—'
+                                      : money(bank.statement_ending_balance, bank.currency)}
+                                  </td>
+                                  <td className="num">
+                                    {bank.difference == null ? '—' : money(bank.difference, bank.currency)}
+                                  </td>
+                                  <td>
+                                    <span
+                                      className={`badge ${bank.is_locked ? 'ok' : bank.is_tied ? 'ok' : 'open'}`}
+                                    >
+                                      {bank.is_locked
+                                        ? 'locked'
+                                        : bank.can_lock
+                                          ? 'ready'
+                                          : bank.status.replace('_', ' ')}
+                                    </span>
+                                  </td>
+                                  <td>
+                                    <Link className="btn ghost" to={bank.href}>
+                                      Open <ExternalLink size={12} />
+                                    </Link>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                            <tfoot>
+                              <tr>
+                                <td>BS cash vs bank books ({doc.cash_schedule.reporting_currency})</td>
+                                <td className="num" colSpan={2}>
+                                  {money(doc.cash_schedule.gl_statement_amount)} vs{' '}
+                                  {money(doc.cash_schedule.banks_book_reporting_total)}
+                                </td>
+                                <td className="num">
+                                  {money(doc.cash_schedule.gl_vs_books_difference)}
+                                </td>
+                                <td colSpan={2}>
+                                  <span className={`badge ${doc.cash_schedule.gl_agrees ? 'ok' : 'open'}`}>
+                                    {doc.cash_schedule.gl_agrees ? 'GL agrees' : 'GL mismatch'}
+                                  </span>
+                                </td>
+                              </tr>
+                            </tfoot>
+                          </table>
+                        </div>
+                      </>
+                    )}
+
+                    {!doc.cash_schedule && doc.drill && doc.drill.lines.length > 0 && (
                       <>
                         <div className="wp-pack-section-head" style={{ marginTop: '1.1rem' }}>
                           <h3>Supporting schedule</h3>
@@ -354,19 +471,46 @@ export function WorkingPapersPage() {
                     <div className="toolbar" style={{ marginBottom: '0.65rem' }}>
                       <button
                         className="btn"
-                        disabled={doc.status === 'prepared' || doc.status === 'reviewed'}
-                        onClick={() => void persist({ status: 'prepared', preparer: doc.preparer || 'C' })}
+                        disabled={
+                          doc.status === 'prepared' ||
+                          doc.status === 'reviewed' ||
+                          doc.can_prepare === false
+                        }
+                        title={
+                          doc.can_prepare === false
+                            ? (doc.gate_messages || []).join('; ') || 'Cash recon not ready'
+                            : undefined
+                        }
+                        onClick={() =>
+                          void persist({ status: 'prepared', preparer: doc.preparer || 'C' })
+                        }
                       >
                         Mark prepared
                       </button>
                       <button
                         className="btn primary"
-                        disabled={doc.status === 'reviewed'}
-                        onClick={() => void persist({ status: 'reviewed', reviewer: doc.reviewer || 'R' })}
+                        disabled={doc.status === 'reviewed' || doc.can_review === false}
+                        title={
+                          doc.can_review === false
+                            ? (doc.gate_messages || []).join('; ') || 'Lock banks before review'
+                            : undefined
+                        }
+                        onClick={() => {
+                          const prep = (doc.preparer || 'C').trim()
+                          let rev = (doc.reviewer || 'R').trim()
+                          if (rev.toUpperCase() === prep.toUpperCase()) rev = `${rev}2`
+                          void persist({ status: 'reviewed', preparer: prep, reviewer: rev })
+                        }}
                       >
                         Mark reviewed
                       </button>
                     </div>
+                    {doc.key === 'cash' && (
+                      <p className="hint" style={{ marginBottom: '0.65rem' }}>
+                        Prepare requires every bank ready/locked with diff = 0 and BS cash = bank books.
+                        Review requires all banks locked and a different reviewer.
+                      </p>
+                    )}
                     <label className="wp-notes">
                       Notes
                       <textarea
