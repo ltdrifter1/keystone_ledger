@@ -40,6 +40,9 @@ export function ReportsPage() {
     Promise.all([api.entities(), api.scenarios()]).then(([e, s]) => {
       setEntities(e)
       setScenarios(s)
+      // Default to CAN so CAN/USE are not blended unless the user opts in
+      const can = e.find((x) => x.code === 'CAN')
+      if (can) setEntityId(String(can.id))
     })
   }, [])
 
@@ -161,7 +164,7 @@ export function ReportsPage() {
           <option value="custom">Custom</option>
         </select>
         <select className="select" value={entityId} onChange={(e) => setEntityId(e.target.value)}>
-          <option value="">Consolidated</option>
+          <option value="">All entities (sum — not eliminated)</option>
           {entities.map((e) => (
             <option key={e.id} value={e.id}>
               {e.code} — {e.name}

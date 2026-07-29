@@ -459,6 +459,19 @@ export const api = {
       errors: string[]
     }>('/imports/bank-statement', { method: 'POST', body: fd })
   },
+  importSynoptic: async (bankAccountId: number, file: File) => {
+    const fd = new FormData()
+    fd.append('bank_account_id', String(bankAccountId))
+    fd.append('file', file)
+    return request<{
+      batch_id: string
+      imported: number
+      duplicates_flagged: number
+      auto_categorized: number
+      skipped: number
+      errors: string[]
+    }>('/imports/synoptic', { method: 'POST', body: fd })
+  },
   report: (body: Record<string, unknown>) =>
     request<Report>('/reports/run', {
       method: 'POST',

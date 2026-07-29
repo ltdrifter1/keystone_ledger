@@ -1,0 +1,875 @@
+{
+  "source": "WBC Synoptic CAN 1010 header rows (Jul-2026 working file)",
+  "reporting_currency": "CAD",
+  "accounts": [
+    {
+      "code": "4000",
+      "name": "Product Sales",
+      "section": "Revenue",
+      "account_type": "revenue",
+      "statement": "income_statement",
+      "normal_balance": "credit",
+      "is_cash": false,
+      "is_intercompany": false,
+      "cash_flow_section": "operating",
+      "channels": [
+        "NOBL",
+        "LBNA/XM",
+        "Interco"
+      ]
+    },
+    {
+      "code": "4100",
+      "name": "Service Revenue",
+      "section": "Revenue",
+      "account_type": "revenue",
+      "statement": "income_statement",
+      "normal_balance": "credit",
+      "is_cash": false,
+      "is_intercompany": false,
+      "cash_flow_section": "operating",
+      "channels": [
+        "Interco",
+        "XM"
+      ]
+    },
+    {
+      "code": "4200",
+      "name": "Shipping Rev",
+      "section": "Revenue",
+      "account_type": "revenue",
+      "statement": "income_statement",
+      "normal_balance": "credit",
+      "is_cash": false,
+      "is_intercompany": false,
+      "cash_flow_section": "operating",
+      "channels": [
+        "Shipping Rev"
+      ]
+    },
+    {
+      "code": "4300",
+      "name": "Returns/Discount",
+      "section": "Revenue",
+      "account_type": "revenue",
+      "statement": "income_statement",
+      "normal_balance": "credit",
+      "is_cash": false,
+      "is_intercompany": false,
+      "cash_flow_section": "operating",
+      "channels": [
+        "Returns/Discount"
+      ]
+    },
+    {
+      "code": "5000",
+      "name": "Materials",
+      "section": "Cost of Goods Sold",
+      "account_type": "expense",
+      "statement": "income_statement",
+      "normal_balance": "debit",
+      "is_cash": false,
+      "is_intercompany": false,
+      "cash_flow_section": "operating",
+      "channels": [
+        "Materials"
+      ]
+    },
+    {
+      "code": "5100",
+      "name": "Freight In",
+      "section": "Cost of Goods Sold",
+      "account_type": "expense",
+      "statement": "income_statement",
+      "normal_balance": "debit",
+      "is_cash": false,
+      "is_intercompany": false,
+      "cash_flow_section": "operating",
+      "channels": [
+        "Freight In"
+      ]
+    },
+    {
+      "code": "5200",
+      "name": "Direct Labour",
+      "section": "Cost of Goods Sold",
+      "account_type": "expense",
+      "statement": "income_statement",
+      "normal_balance": "debit",
+      "is_cash": false,
+      "is_intercompany": false,
+      "cash_flow_section": "operating",
+      "channels": [
+        "Direct Labour"
+      ]
+    },
+    {
+      "code": "5300",
+      "name": "Inventory Adjustments",
+      "section": "Cost of Goods Sold",
+      "account_type": "expense",
+      "statement": "income_statement",
+      "normal_balance": "debit",
+      "is_cash": false,
+      "is_intercompany": false,
+      "cash_flow_section": "operating",
+      "channels": [
+        "Inventory Adjustments"
+      ]
+    },
+    {
+      "code": "6000",
+      "name": "Marketing",
+      "section": "Operating Expenses",
+      "account_type": "expense",
+      "statement": "income_statement",
+      "normal_balance": "debit",
+      "is_cash": false,
+      "is_intercompany": false,
+      "cash_flow_section": "operating",
+      "channels": [
+        "Marketing"
+      ]
+    },
+    {
+      "code": "6100",
+      "name": "Freight Out",
+      "section": "Operating Expenses",
+      "account_type": "expense",
+      "statement": "income_statement",
+      "normal_balance": "debit",
+      "is_cash": false,
+      "is_intercompany": false,
+      "cash_flow_section": "operating",
+      "channels": [
+        "Freight Out"
+      ]
+    },
+    {
+      "code": "6200",
+      "name": "Software",
+      "section": "Operating Expenses",
+      "account_type": "expense",
+      "statement": "income_statement",
+      "normal_balance": "debit",
+      "is_cash": false,
+      "is_intercompany": false,
+      "cash_flow_section": "operating",
+      "channels": [
+        "Software"
+      ]
+    },
+    {
+      "code": "6300",
+      "name": "Occupancy",
+      "section": "Operating Expenses",
+      "account_type": "expense",
+      "statement": "income_statement",
+      "normal_balance": "debit",
+      "is_cash": false,
+      "is_intercompany": false,
+      "cash_flow_section": "operating",
+      "channels": [
+        "Occupancy"
+      ]
+    },
+    {
+      "code": "6400",
+      "name": "Professional Fees",
+      "section": "Operating Expenses",
+      "account_type": "expense",
+      "statement": "income_statement",
+      "normal_balance": "debit",
+      "is_cash": false,
+      "is_intercompany": false,
+      "cash_flow_section": "operating",
+      "channels": [
+        "Professional Fees"
+      ]
+    },
+    {
+      "code": "6500",
+      "name": "Office/Admin",
+      "section": "Operating Expenses",
+      "account_type": "expense",
+      "statement": "income_statement",
+      "normal_balance": "debit",
+      "is_cash": false,
+      "is_intercompany": false,
+      "cash_flow_section": "operating",
+      "channels": [
+        "Office/Admin"
+      ]
+    },
+    {
+      "code": "6600",
+      "name": "Other OpEx",
+      "section": "Operating Expenses",
+      "account_type": "expense",
+      "statement": "income_statement",
+      "normal_balance": "debit",
+      "is_cash": false,
+      "is_intercompany": false,
+      "cash_flow_section": "operating",
+      "channels": [
+        "Other OpEx"
+      ]
+    },
+    {
+      "code": "7000",
+      "name": "Depreciation",
+      "section": "Operating Expenses",
+      "account_type": "expense",
+      "statement": "income_statement",
+      "normal_balance": "debit",
+      "is_cash": false,
+      "is_intercompany": false,
+      "cash_flow_section": "operating",
+      "channels": [
+        "Depreciation"
+      ]
+    },
+    {
+      "code": "8000",
+      "name": "Realized FX Gain (Loss)",
+      "section": "Below The Line",
+      "account_type": "expense",
+      "statement": "income_statement",
+      "normal_balance": "debit",
+      "is_cash": false,
+      "is_intercompany": false,
+      "cash_flow_section": "operating",
+      "channels": [
+        "Realized FX Gain (Loss)"
+      ]
+    },
+    {
+      "code": "8100",
+      "name": "Unrealized FX Gain (Loss)",
+      "section": "Below The Line",
+      "account_type": "expense",
+      "statement": "income_statement",
+      "normal_balance": "debit",
+      "is_cash": false,
+      "is_intercompany": false,
+      "cash_flow_section": "operating",
+      "channels": [
+        "Unrealized FX Gain (Loss)"
+      ]
+    },
+    {
+      "code": "8200",
+      "name": "Interest Income",
+      "section": "Below The Line",
+      "account_type": "revenue",
+      "statement": "income_statement",
+      "normal_balance": "credit",
+      "is_cash": false,
+      "is_intercompany": false,
+      "cash_flow_section": "operating",
+      "channels": [
+        "Interest Income"
+      ]
+    },
+    {
+      "code": "8300",
+      "name": "Interest Expense",
+      "section": "Below The Line",
+      "account_type": "expense",
+      "statement": "income_statement",
+      "normal_balance": "debit",
+      "is_cash": false,
+      "is_intercompany": false,
+      "cash_flow_section": "operating",
+      "channels": [
+        "Interest Expense"
+      ]
+    },
+    {
+      "code": "8400",
+      "name": "Income Tax",
+      "section": "Below The Line",
+      "account_type": "expense",
+      "statement": "income_statement",
+      "normal_balance": "debit",
+      "is_cash": false,
+      "is_intercompany": false,
+      "cash_flow_section": "operating",
+      "channels": [
+        "Income Tax"
+      ]
+    },
+    {
+      "code": "1000",
+      "name": "Cash",
+      "section": "Assets",
+      "account_type": "asset",
+      "statement": "balance_sheet",
+      "normal_balance": "debit",
+      "is_cash": true,
+      "is_intercompany": false,
+      "cash_flow_section": null,
+      "channels": [
+        "Cash Sweep In",
+        "Cash Sweep Out",
+        "Cash Sweep Visa"
+      ]
+    },
+    {
+      "code": "1100",
+      "name": "Accounts Receviable",
+      "section": "Assets",
+      "account_type": "asset",
+      "statement": "balance_sheet",
+      "normal_balance": "debit",
+      "is_cash": false,
+      "is_intercompany": false,
+      "cash_flow_section": null,
+      "channels": [
+        "Trade",
+        "Interco",
+        "XM"
+      ]
+    },
+    {
+      "code": "1200",
+      "name": "Inventory",
+      "section": "Assets",
+      "account_type": "asset",
+      "statement": "balance_sheet",
+      "normal_balance": "debit",
+      "is_cash": false,
+      "is_intercompany": false,
+      "cash_flow_section": null,
+      "channels": [
+        "General",
+        "Interco",
+        "XM"
+      ]
+    },
+    {
+      "code": "1300",
+      "name": "Prepaids",
+      "section": "Assets",
+      "account_type": "asset",
+      "statement": "balance_sheet",
+      "normal_balance": "debit",
+      "is_cash": false,
+      "is_intercompany": false,
+      "cash_flow_section": null,
+      "channels": [
+        "Prepaids"
+      ]
+    },
+    {
+      "code": "1400",
+      "name": "Property & Equipment",
+      "section": "Assets",
+      "account_type": "asset",
+      "statement": "balance_sheet",
+      "normal_balance": "debit",
+      "is_cash": false,
+      "is_intercompany": false,
+      "cash_flow_section": "investing",
+      "channels": [
+        "Property & Equipment"
+      ]
+    },
+    {
+      "code": "2000",
+      "name": "Accounts Payable",
+      "section": "Liabilities",
+      "account_type": "liability",
+      "statement": "balance_sheet",
+      "normal_balance": "credit",
+      "is_cash": false,
+      "is_intercompany": false,
+      "cash_flow_section": null,
+      "channels": [
+        "Trade",
+        "Interco",
+        "XM"
+      ]
+    },
+    {
+      "code": "2100",
+      "name": "Due to / From Intercompany",
+      "section": "Liabilities",
+      "account_type": "liability",
+      "statement": "balance_sheet",
+      "normal_balance": "credit",
+      "is_cash": false,
+      "is_intercompany": true,
+      "cash_flow_section": null,
+      "channels": [
+        "Due From",
+        "Due To"
+      ]
+    },
+    {
+      "code": "2200",
+      "name": "Unearned Revenue",
+      "section": "Liabilities",
+      "account_type": "liability",
+      "statement": "balance_sheet",
+      "normal_balance": "credit",
+      "is_cash": false,
+      "is_intercompany": false,
+      "cash_flow_section": null,
+      "channels": [
+        "Unearned Revenue"
+      ]
+    },
+    {
+      "code": "2300",
+      "name": "Taxes Payable",
+      "section": "Liabilities",
+      "account_type": "liability",
+      "statement": "balance_sheet",
+      "normal_balance": "credit",
+      "is_cash": false,
+      "is_intercompany": false,
+      "cash_flow_section": null,
+      "channels": [
+        "Taxes Payable"
+      ]
+    },
+    {
+      "code": "2400",
+      "name": "Shareholder Loan",
+      "section": "Liabilities",
+      "account_type": "liability",
+      "statement": "balance_sheet",
+      "normal_balance": "credit",
+      "is_cash": false,
+      "is_intercompany": false,
+      "cash_flow_section": null,
+      "channels": [
+        "Shareholder Loan"
+      ]
+    },
+    {
+      "code": "3000",
+      "name": "Retained Earnings",
+      "section": "Equity",
+      "account_type": "equity",
+      "statement": "balance_sheet",
+      "normal_balance": "credit",
+      "is_cash": false,
+      "is_intercompany": false,
+      "cash_flow_section": null,
+      "channels": [
+        "Retained Earnings"
+      ]
+    },
+    {
+      "code": "3100",
+      "name": "Owner contributions",
+      "section": "Equity",
+      "account_type": "equity",
+      "statement": "balance_sheet",
+      "normal_balance": "credit",
+      "is_cash": false,
+      "is_intercompany": false,
+      "cash_flow_section": null,
+      "channels": [
+        "Owner contributions",
+        "Owner draws"
+      ]
+    }
+  ],
+  "cash_bank_accounts": [
+    {
+      "code": "1010",
+      "name": "Operating Cash 1010",
+      "currency": "CAD",
+      "entity": "CAN",
+      "is_primary_import": true,
+      "account_type": "asset",
+      "statement": "balance_sheet",
+      "normal_balance": "debit",
+      "is_cash": true,
+      "parent_code": "1000"
+    },
+    {
+      "code": "1015",
+      "name": "USD Cash 1015",
+      "currency": "USD",
+      "entity": "CAN",
+      "account_type": "asset",
+      "statement": "balance_sheet",
+      "normal_balance": "debit",
+      "is_cash": true,
+      "parent_code": "1000"
+    },
+    {
+      "code": "1030",
+      "name": "Cash 1030",
+      "currency": "CAD",
+      "entity": "CAN",
+      "account_type": "asset",
+      "statement": "balance_sheet",
+      "normal_balance": "debit",
+      "is_cash": true,
+      "parent_code": "1000"
+    },
+    {
+      "code": "1050",
+      "name": "Sweep / Loan Cash 1050",
+      "currency": "CAD",
+      "entity": "CAN",
+      "account_type": "asset",
+      "statement": "balance_sheet",
+      "normal_balance": "debit",
+      "is_cash": true,
+      "parent_code": "1000"
+    }
+  ],
+  "clearing_accounts": [
+    {
+      "code": "2110",
+      "name": "CAN Clearing 2110",
+      "account_type": "liability",
+      "statement": "balance_sheet",
+      "normal_balance": "credit"
+    },
+    {
+      "code": "2130",
+      "name": "CAN Clearing 2130",
+      "account_type": "liability",
+      "statement": "balance_sheet",
+      "normal_balance": "credit"
+    },
+    {
+      "code": "2190",
+      "name": "CAN Clearing 2190",
+      "account_type": "liability",
+      "statement": "balance_sheet",
+      "normal_balance": "credit"
+    }
+  ],
+  "synoptic_columns": [
+    {
+      "col_index": 6,
+      "code": "4000",
+      "section": "Revenue",
+      "category": "Product Sales",
+      "channel": "NOBL"
+    },
+    {
+      "col_index": 7,
+      "code": "4000",
+      "section": "Revenue",
+      "category": "Product Sales",
+      "channel": "LBNA/XM"
+    },
+    {
+      "col_index": 8,
+      "code": "4000",
+      "section": "Revenue",
+      "category": "Product Sales",
+      "channel": "Interco"
+    },
+    {
+      "col_index": 9,
+      "code": "4100",
+      "section": "Revenue",
+      "category": "Service Revenue",
+      "channel": "Interco"
+    },
+    {
+      "col_index": 10,
+      "code": "4100",
+      "section": "Revenue",
+      "category": "Service Revenue",
+      "channel": "XM"
+    },
+    {
+      "col_index": 11,
+      "code": "4200",
+      "section": "Revenue",
+      "category": "Shipping Rev",
+      "channel": "Shipping Rev"
+    },
+    {
+      "col_index": 12,
+      "code": "4300",
+      "section": "Revenue",
+      "category": "Returns/Discount",
+      "channel": "Returns/Discount"
+    },
+    {
+      "col_index": 13,
+      "code": "5000",
+      "section": "Cost of Goods Sold",
+      "category": "Materials",
+      "channel": "Materials"
+    },
+    {
+      "col_index": 14,
+      "code": "5100",
+      "section": "Cost of Goods Sold",
+      "category": "Freight In",
+      "channel": "Freight In"
+    },
+    {
+      "col_index": 15,
+      "code": "5200",
+      "section": "Cost of Goods Sold",
+      "category": "Direct Labour",
+      "channel": "Direct Labour"
+    },
+    {
+      "col_index": 16,
+      "code": "5300",
+      "section": "Cost of Goods Sold",
+      "category": "Inventory Adjustments",
+      "channel": "Inventory Adjustments"
+    },
+    {
+      "col_index": 17,
+      "code": "6000",
+      "section": "Operating Expenses",
+      "category": "Marketing",
+      "channel": "Marketing"
+    },
+    {
+      "col_index": 18,
+      "code": "6100",
+      "section": "Operating Expenses",
+      "category": "Freight Out",
+      "channel": "Freight Out"
+    },
+    {
+      "col_index": 19,
+      "code": "6200",
+      "section": "Operating Expenses",
+      "category": "Software",
+      "channel": "Software"
+    },
+    {
+      "col_index": 20,
+      "code": "6300",
+      "section": "Operating Expenses",
+      "category": "Occupancy",
+      "channel": "Occupancy"
+    },
+    {
+      "col_index": 21,
+      "code": "6400",
+      "section": "Operating Expenses",
+      "category": "Professional Fees",
+      "channel": "Professional Fees"
+    },
+    {
+      "col_index": 22,
+      "code": "6500",
+      "section": "Operating Expenses",
+      "category": "Office/Admin",
+      "channel": "Office/Admin"
+    },
+    {
+      "col_index": 23,
+      "code": "6600",
+      "section": "Operating Expenses",
+      "category": "Other OpEx",
+      "channel": "Other OpEx"
+    },
+    {
+      "col_index": 24,
+      "code": "7000",
+      "section": "Operating Expenses",
+      "category": "Depreciation",
+      "channel": "Depreciation"
+    },
+    {
+      "col_index": 25,
+      "code": "8000",
+      "section": "Below The Line",
+      "category": "Realized FX Gain (Loss)",
+      "channel": "Realized FX Gain (Loss)"
+    },
+    {
+      "col_index": 26,
+      "code": "8100",
+      "section": "Below The Line",
+      "category": "Unrealized FX Gain (Loss)",
+      "channel": "Unrealized FX Gain (Loss)"
+    },
+    {
+      "col_index": 27,
+      "code": "8200",
+      "section": "Below The Line",
+      "category": "Interest Income",
+      "channel": "Interest Income"
+    },
+    {
+      "col_index": 28,
+      "code": "8300",
+      "section": "Below The Line",
+      "category": "Interest Expense",
+      "channel": "Interest Expense"
+    },
+    {
+      "col_index": 29,
+      "code": "8400",
+      "section": "Below The Line",
+      "category": "Income Tax",
+      "channel": "Income Tax"
+    },
+    {
+      "col_index": 30,
+      "code": "1000",
+      "section": "Assets",
+      "category": "Cash",
+      "channel": "Cash Sweep In"
+    },
+    {
+      "col_index": 31,
+      "code": "1000",
+      "section": "Assets",
+      "category": "Cash",
+      "channel": "Cash Sweep Out"
+    },
+    {
+      "col_index": 32,
+      "code": "1000",
+      "section": "Assets",
+      "category": "Cash",
+      "channel": "Cash Sweep Visa"
+    },
+    {
+      "col_index": 33,
+      "code": "1100",
+      "section": "Assets",
+      "category": "Accounts Receviable",
+      "channel": "Trade"
+    },
+    {
+      "col_index": 34,
+      "code": "1100",
+      "section": "Assets",
+      "category": "Accounts Receviable",
+      "channel": "Interco"
+    },
+    {
+      "col_index": 35,
+      "code": "1100",
+      "section": "Assets",
+      "category": "Accounts Receviable",
+      "channel": "XM"
+    },
+    {
+      "col_index": 36,
+      "code": "1200",
+      "section": "Assets",
+      "category": "Inventory",
+      "channel": "General"
+    },
+    {
+      "col_index": 37,
+      "code": "1200",
+      "section": "Assets",
+      "category": "Inventory",
+      "channel": "Interco"
+    },
+    {
+      "col_index": 38,
+      "code": "1200",
+      "section": "Assets",
+      "category": "Inventory",
+      "channel": "XM"
+    },
+    {
+      "col_index": 39,
+      "code": "1300",
+      "section": "Assets",
+      "category": "Prepaids",
+      "channel": "Prepaids"
+    },
+    {
+      "col_index": 40,
+      "code": "1400",
+      "section": "Assets",
+      "category": "Property & Equipment",
+      "channel": "Property & Equipment"
+    },
+    {
+      "col_index": 41,
+      "code": "2000",
+      "section": "Liabilities",
+      "category": "Accounts Payable",
+      "channel": "Trade"
+    },
+    {
+      "col_index": 42,
+      "code": "2000",
+      "section": "Liabilities",
+      "category": "Accounts Payable",
+      "channel": "Interco"
+    },
+    {
+      "col_index": 43,
+      "code": "2000",
+      "section": "Liabilities",
+      "category": "Accounts Payable",
+      "channel": "XM"
+    },
+    {
+      "col_index": 44,
+      "code": "2100",
+      "section": "Liabilities",
+      "category": "Due to / From Intercompany",
+      "channel": "Due From"
+    },
+    {
+      "col_index": 45,
+      "code": "2100",
+      "section": "Liabilities",
+      "category": "Due to / From Intercompany",
+      "channel": "Due To"
+    },
+    {
+      "col_index": 46,
+      "code": "2200",
+      "section": "Liabilities",
+      "category": "Unearned Revenue",
+      "channel": "Unearned Revenue"
+    },
+    {
+      "col_index": 47,
+      "code": "2300",
+      "section": "Liabilities",
+      "category": "Taxes Payable",
+      "channel": "Taxes Payable"
+    },
+    {
+      "col_index": 48,
+      "code": "2400",
+      "section": "Liabilities",
+      "category": "Shareholder Loan",
+      "channel": "Shareholder Loan"
+    },
+    {
+      "col_index": 49,
+      "code": "3000",
+      "section": "Equity",
+      "category": "Retained Earnings",
+      "channel": "Retained Earnings"
+    },
+    {
+      "col_index": 50,
+      "code": "3100",
+      "section": "Equity",
+      "category": "Owner contributions",
+      "channel": "Owner contributions"
+    },
+    {
+      "col_index": 51,
+      "code": "3100",
+      "section": "Equity",
+      "category": "Owner contributions",
+      "channel": "Owner draws"
+    }
+  ]
+}
