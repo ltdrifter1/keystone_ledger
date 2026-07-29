@@ -1,4 +1,4 @@
-"""Bootstrap WBC CAN + USE entities, chart of accounts, banks, and report layouts from mapping files."""
+"""Bootstrap WBC CAN + USA entities, chart of accounts, banks, and report layouts from mapping files."""
 
 from __future__ import annotations
 
@@ -32,7 +32,7 @@ def _load_json(name: str) -> dict:
 
 
 def bootstrap_wbc_dimensions(db: Session) -> dict:
-    """Create CAN/USE world from mapping JSON. Caller commits."""
+    """Create CAN/USA world from mapping JSON. Caller commits."""
     coa = _load_json("wbc_chart_of_accounts.json")
     entities_cfg = _load_json("wbc_entities_banks.json")
 
@@ -123,7 +123,7 @@ def bootstrap_wbc_dimensions(db: Session) -> dict:
         entity_map[ent.code] = ent
 
         for dept in ent_cfg.get("departments") or []:
-            # Department codes are globally unique — prefix USE codes already distinct
+            # Department codes are globally unique — prefix USA codes already distinct
             db.add(
                 DimDepartment(
                     code=dept["code"],

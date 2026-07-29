@@ -341,7 +341,7 @@ def import_synoptic_file(
             if other:
                 counter_entity_id = other.id
         elif any(a.channel in ("Interco", "Due From", "Due To") for a in allocations) and counter_default:
-            # CAN↔USE kept as separate entities; tag IC against the other entity
+            # CAN↔USA kept as separate entities; tag IC against the other entity
             counter_entity_id = counter_default.id
 
         primary_account = None
