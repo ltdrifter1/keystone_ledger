@@ -1,5 +1,5 @@
 {
-  "source": "WBC multi-entity controller pack \u2014 CAN and USE kept separate",
+  "source": "WBC multi-entity controller pack \u2014 CAN and USA kept separate",
   "entities": [
     {
       "code": "CAN",
@@ -74,7 +74,7 @@
       ]
     },
     {
-      "code": "USE",
+      "code": "USA",
       "name": "WBC United States",
       "country": "United States",
       "functional_currency": "USD",
@@ -82,20 +82,20 @@
       "banks": [
         {
           "gl_code": "1000",
-          "name": "USE Operating USD (pending synoptic)",
-          "account_number": "USE-1010",
+          "name": "USA Operating USD (pending synoptic)",
+          "account_number": "USA-1010",
           "currency": "USD",
           "institution": "WBC",
-          "note": "Placeholder \u2014 import USE synoptic when available"
+          "note": "Placeholder \u2014 import USA synoptic when available"
         }
       ],
       "departments": [
         {
-          "code": "USE_OPS",
+          "code": "USA_OPS",
           "name": "US Operations"
         },
         {
-          "code": "USE_INTERCO",
+          "code": "USA_INTERCO",
           "name": "US Intercompany"
         }
       ]

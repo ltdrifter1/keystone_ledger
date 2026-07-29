@@ -40,7 +40,7 @@ export function ReportsPage() {
     Promise.all([api.entities(), api.scenarios()]).then(([e, s]) => {
       setEntities(e)
       setScenarios(s)
-      // Default to CAN so CAN/USE are not blended unless the user opts in
+      // Default to CAN so CAN/USA are not blended unless the user opts in
       const can = e.find((x) => x.code === 'CAN')
       if (can) setEntityId(String(can.id))
     })

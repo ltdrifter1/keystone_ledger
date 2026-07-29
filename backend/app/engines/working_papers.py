@@ -147,7 +147,7 @@ TEMPLATES: list[WorkingPaperTemplate] = [
         title="Intercompany",
         statement="balance_sheet",
         section="liability",
-        purpose="Prove intercompany balances eliminate / match across entities (CAN vs USE kept separate).",
+        purpose="Prove intercompany balances eliminate / match across entities (CAN vs USA kept separate).",
         objective="Match IC receivables/payables and transfers; clear unmatched items.",
         tie_out="Entity A IC asset = Entity B IC liability (same FX basis); unmatched = exception.",
         procedures=[
@@ -155,7 +155,7 @@ TEMPLATES: list[WorkingPaperTemplate] = [
             "Run / review auto-match for IC transfers; investigate unmatched pairs.",
             "Confirm mirror balances (AR/AP or transfer legs) agree within FX tolerance.",
             "Document timing differences and resolve before consolidation.",
-            "Agree IC lines to Balance Sheet — do not blend CAN and USE without an elimination pack.",
+            "Agree IC lines to Balance Sheet — do not blend CAN and USA without an elimination pack.",
         ],
         evidence=[
             "IC balance listing by entity",
@@ -306,7 +306,7 @@ TEMPLATES: list[WorkingPaperTemplate] = [
             "Agree Income Statement totals (revenue, expenses, NI) to GL / drill detail.",
             "Review material revenue streams and expense categories vs prior / budget.",
             "Investigate unusual items, large uncategorized activity, and reclasses.",
-            "Confirm department / entity filters used for management vs statutory view — keep CAN and USE separate.",
+            "Confirm department / entity filters used for management vs statutory view — keep CAN and USA separate.",
             "Bridge Net Income to equity rollforward (retained earnings).",
             "Document key drivers and residual questions for review.",
         ],

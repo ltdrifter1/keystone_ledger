@@ -269,7 +269,7 @@ export function TransactionsPage() {
       <div className="page-header">
         <div>
           <h1>Transactions</h1>
-          <p>Inline categorize · split · remember rules. Filter by CAN or USE — entities stay separate. Use Import synoptic for WBC cashbooks.</p>
+          <p>Inline categorize · split · remember rules. Filter by CAN or USA — entities stay separate. Use Import synoptic for WBC cashbooks.</p>
         </div>
         <div className="toolbar">
           <label className="btn ghost">

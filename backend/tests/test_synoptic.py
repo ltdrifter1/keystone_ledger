@@ -1,4 +1,4 @@
-"""WBC synoptic mapping + CAN/USE separation tests."""
+"""WBC synoptic mapping + CAN/USA separation tests."""
 
 from pathlib import Path
 
@@ -29,9 +29,9 @@ def test_entities_are_can_and_use_separate():
     db = SessionLocal()
     try:
         codes = sorted(db.scalars(select(DimEntity.code)).all())
-        assert codes == ["CAN", "USE"]
+        assert codes == ["CAN", "USA"]
         can = db.scalar(select(DimEntity).where(DimEntity.code == "CAN"))
-        use = db.scalar(select(DimEntity).where(DimEntity.code == "USE"))
+        use = db.scalar(select(DimEntity).where(DimEntity.code == "USA"))
         assert can is not None and use is not None
         assert can.parent_entity_id is None and use.parent_entity_id is None
         assert can.consolidation_method == "none"
@@ -42,9 +42,9 @@ def test_entities_are_can_and_use_separate():
         can_banks = list(db.scalars(select(BankAccount).where(BankAccount.entity_id == can.id)).all())
         use_banks = list(db.scalars(select(BankAccount).where(BankAccount.entity_id == use.id)).all())
         assert any(b.account_number == "1010" for b in can_banks)
-        assert use_banks  # placeholder ready for USE synoptic
+        assert use_banks  # placeholder ready for USA synoptic
 
-        # No USE transactions from CAN synoptic seed
+        # No USA transactions from CAN synoptic seed
         use_txn = db.scalar(
             select(func.count()).select_from(Transaction).where(Transaction.entity_id == use.id)
         )
@@ -111,7 +111,7 @@ def test_transfer_target_parser():
 def test_api_synoptic_import_dedupes():
     client = TestClient(app)
     entities = {e["code"]: e for e in client.get("/api/entities").json()}
-    assert "CAN" in entities and "USE" in entities
+    assert "CAN" in entities and "USA" in entities
     banks = client.get("/api/bank-accounts").json()
     can_bank = next(b for b in banks if b["account_number"] == "1010" and b["entity_id"] == entities["CAN"]["id"])
     path = Path(SAMPLE_ROOT / "synoptic" / "CAN_1010_WBC_JUL-2026.csv")

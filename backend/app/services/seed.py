@@ -1,4 +1,4 @@
-"""Seed WBC CAN + USE ledger from mapping files and optional CAN 1010 synoptic."""
+"""Seed WBC CAN + USA ledger from mapping files and optional CAN 1010 synoptic."""
 
 from __future__ import annotations
 
@@ -21,8 +21,8 @@ def seed_if_empty(db: Session) -> bool:
 
 def seed_all(db: Session, *, load_synoptic: bool = True) -> dict:
     """
-    Bootstrap CAN + USE as separate entities with shared WBC chart of accounts.
-    When sample synoptic is present, load CAN 1010 activity (USE remains empty until its file is imported).
+    Bootstrap CAN + USA as separate entities with shared WBC chart of accounts.
+    When sample synoptic is present, load CAN 1010 activity (USA remains empty until its file is imported).
     """
     meta = bootstrap_wbc_dimensions(db)
     db.flush()
