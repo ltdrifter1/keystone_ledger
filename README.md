@@ -49,7 +49,9 @@ uvicorn app.main:app --reload --port 8000
 
 API docs: http://127.0.0.1:8000/docs
 
-On first boot the app seeds Canada/USA entities, chart of accounts, bank accounts, categorization rules, FX rates, and sample transactions.
+On first boot the app seeds **CAN** and **USE** as separate entities (no consolidation parent), the WBC chart of accounts extracted from the synoptic header map, CAN bank accounts (1010/1015/1030/1050), a USE operating placeholder, FX rates, report layouts, and the **CAN 1010** synoptic cashbook (`backend/sample_data/synoptic/`).
+
+Import additional WBC synoptics via `POST /api/imports/synoptic` (or **Import synoptic** on Transactions) while filtering to the target entity bank — USE stays empty until its file is loaded.
 
 ### Frontend
 

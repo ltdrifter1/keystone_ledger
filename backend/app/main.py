@@ -20,7 +20,7 @@ async def lifespan(_: FastAPI):
     try:
         seeded = seed_if_empty(db)
         if seeded:
-            print("Seeded demo data (CA/US entities, chart, sample transactions)")
+            print("Seeded WBC data (CAN + USE entities, chart from synoptic map, CAN 1010 synoptic)")
         foundation = ensure_working_paper_foundation(db)
         if foundation.get("accounts_created") or foundation.get("layouts_created"):
             print(

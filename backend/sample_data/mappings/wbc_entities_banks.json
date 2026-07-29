@@ -1,0 +1,119 @@
+{
+  "source": "WBC multi-entity controller pack \u2014 CAN and USE kept separate",
+  "entities": [
+    {
+      "code": "CAN",
+      "name": "WBC Canada",
+      "country": "Canada",
+      "functional_currency": "CAD",
+      "consolidation_method": "none",
+      "banks": [
+        {
+          "gl_code": "1010",
+          "name": "CAN 1010 Operating CAD",
+          "account_number": "1010",
+          "currency": "CAD",
+          "institution": "WBC",
+          "synoptic_file": "synoptic/CAN_1010_WBC_JUL-2026.csv"
+        },
+        {
+          "gl_code": "1015",
+          "name": "CAN 1015 USD",
+          "account_number": "1015",
+          "currency": "USD",
+          "institution": "WBC"
+        },
+        {
+          "gl_code": "1030",
+          "name": "CAN 1030 CAD",
+          "account_number": "1030",
+          "currency": "CAD",
+          "institution": "WBC"
+        },
+        {
+          "gl_code": "1050",
+          "name": "CAN 1050 CAD",
+          "account_number": "1050",
+          "currency": "CAD",
+          "institution": "WBC"
+        }
+      ],
+      "departments": [
+        {
+          "code": "NOBL",
+          "name": "NOBL product"
+        },
+        {
+          "code": "LBNA_XM",
+          "name": "LBNA / XM product"
+        },
+        {
+          "code": "XM",
+          "name": "XM channel"
+        },
+        {
+          "code": "TRADE",
+          "name": "Trade"
+        },
+        {
+          "code": "INTERCO",
+          "name": "Intercompany"
+        },
+        {
+          "code": "GENERAL",
+          "name": "General"
+        },
+        {
+          "code": "SWEEP",
+          "name": "Cash sweeps"
+        },
+        {
+          "code": "OWNER",
+          "name": "Owner equity movements"
+        }
+      ]
+    },
+    {
+      "code": "USE",
+      "name": "WBC United States",
+      "country": "United States",
+      "functional_currency": "USD",
+      "consolidation_method": "none",
+      "banks": [
+        {
+          "gl_code": "1000",
+          "name": "USE Operating USD (pending synoptic)",
+          "account_number": "USE-1010",
+          "currency": "USD",
+          "institution": "WBC",
+          "note": "Placeholder \u2014 import USE synoptic when available"
+        }
+      ],
+      "departments": [
+        {
+          "code": "USE_OPS",
+          "name": "US Operations"
+        },
+        {
+          "code": "USE_INTERCO",
+          "name": "US Intercompany"
+        }
+      ]
+    }
+  ],
+  "channels_to_department": {
+    "NOBL": "NOBL",
+    "LBNA/XM": "LBNA_XM",
+    "Interco": "INTERCO",
+    "XM": "XM",
+    "Trade": "TRADE",
+    "General": "GENERAL",
+    "Cash Sweep In": "SWEEP",
+    "Cash Sweep Out": "SWEEP",
+    "Cash Sweep Visa": "SWEEP",
+    "Owner contributions": "OWNER",
+    "Owner draws": "OWNER",
+    "Due From": "INTERCO",
+    "Due To": "INTERCO"
+  }
+}

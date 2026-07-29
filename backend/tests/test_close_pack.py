@@ -44,7 +44,7 @@ def test_close_pack_auto_clears_and_locks_when_clean():
     try:
         bank = _fresh_bank(db)
         scenario = db.scalar(select(DimScenario).where(DimScenario.code == "ACTUAL"))
-        expense = db.scalar(select(DimAccount).where(DimAccount.code == "5500"))
+        expense = db.scalar(select(DimAccount).where(DimAccount.code == "6600"))
         year, month = 2040, 3
         txn = Transaction(
             txn_date=date(year, month, 12),
@@ -132,17 +132,15 @@ def test_close_pack_surfaces_uncategorized_exception():
 
 
 def test_close_pack_run_via_api_multipart():
-    banks = client.get("/api/bank-accounts").json()
-    bank_id = banks[0]["id"]
-    # Use a far-future empty-ish period with statement = beginning only
-    year, month = 2041, 1
-    # Get beginning via creating overview after a dry run without txns — use Form only
-    from app.database import SessionLocal as SL
-    from app.engines.reconciliation import beginning_balance as beg_fn
-
-    db = SL()
+    # Use a dedicated empty bank so seeded CAN 1010 history does not require prior locks
+    db = SessionLocal()
     try:
-        beg = beg_fn(db, bank_id, year, month)
+        bank = _fresh_bank(db)
+        db.commit()
+        db.refresh(bank)
+        bank_id = bank.id
+        year, month = 2041, 1
+        beg = beginning_balance(db, bank_id, year, month)
     finally:
         db.close()
 

@@ -62,7 +62,7 @@ def test_reconcile_tie_and_lock_then_block_edits():
     db = SessionLocal()
     try:
         bank = _fresh_bank(db, "lock")
-        account = db.scalar(select(DimAccount).where(DimAccount.code == "5500"))
+        account = db.scalar(select(DimAccount).where(DimAccount.code == "6600"))
         scenario = db.scalar(select(DimScenario).where(DimScenario.code == "ACTUAL"))
         year, month = 2031, 2
 
@@ -227,8 +227,8 @@ def test_inline_categorize_and_split_api():
     txn_id = create.json()["id"]
 
     accounts = client.get("/api/accounts").json()
-    a1 = next(a for a in accounts if a["code"] == "5400")
-    a2 = next(a for a in accounts if a["code"] == "5500")
+    a1 = next(a for a in accounts if a["code"] == "6500")
+    a2 = next(a for a in accounts if a["code"] == "6600")
 
     cat = client.post(
         f"/api/transactions/{txn_id}/categorize",

@@ -243,6 +243,24 @@ export function TransactionsPage() {
     }
   }
 
+  const onImportSynoptic = async (file: File | null) => {
+    if (!file) return
+    if (!bankId) {
+      show('Choose the entity bank (e.g. CAN 1010) before importing a synoptic')
+      return
+    }
+    try {
+      const res = await api.importSynoptic(Number(bankId), file)
+      const errHint = res.errors?.length ? ` · ${res.errors.length} warnings` : ''
+      show(
+        `Synoptic: ${res.imported} imported · ${res.auto_categorized} mapped · ${res.skipped} skipped${errHint}`,
+      )
+      await load()
+    } catch (e) {
+      setError((e as Error).message)
+    }
+  }
+
   const splitTotal = splitDrafts.reduce((sum, d) => sum + (Number(d.amount) || 0), 0)
   const splitTarget = active && splitForId === active.id ? Number(active.amount) : 0
 
@@ -251,7 +269,7 @@ export function TransactionsPage() {
       <div className="page-header">
         <div>
           <h1>Transactions</h1>
-          <p>Inline categorize · split · remember rules. Locked periods are frozen.</p>
+          <p>Inline categorize · split · remember rules. Filter by CAN or USE — entities stay separate. Use Import synoptic for WBC cashbooks.</p>
         </div>
         <div className="toolbar">
           <label className="btn ghost">
@@ -290,6 +308,15 @@ export function TransactionsPage() {
               accept=".csv,.xlsx,.xls"
               hidden
               onChange={(e) => void onImport(e.target.files?.[0] ?? null)}
+            />
+          </label>
+          <label className="btn">
+            Import synoptic
+            <input
+              type="file"
+              accept=".csv"
+              hidden
+              onChange={(e) => void onImportSynoptic(e.target.files?.[0] ?? null)}
             />
           </label>
         </div>

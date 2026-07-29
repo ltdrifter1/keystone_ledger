@@ -29,7 +29,7 @@ def test_all_main_section_templates_exist():
         "shareholder_loan",
         "taxes_payable",
         "ap",
-        "loans_payable",
+        "unearned_revenue",
         "equity",
         "pnl_analysis",
     }
