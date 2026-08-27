@@ -12,6 +12,7 @@ from app.engines.close_pack import (
     resolve_exception_categorize,
     resolve_exception_clear,
     resolve_exception_void_duplicate,
+    run_close_pack_from_feed,
     run_statement_close_pack,
 )
 from app.models import Reconciliation
@@ -59,6 +60,28 @@ async def run_pack(
             statement_ending_balance=statement_ending_balance,
             file_bytes=file_bytes,
             filename=filename,
+            actor="controller",
+        )
+        db.commit()
+        return _status_model(result)
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(400, str(exc)) from exc
+
+
+@router.post("/run-from-feed", response_model=ClosePackStatus)
+def run_pack_from_feed(
+    bank_account_id: int = Form(...),
+    period_year: int = Form(...),
+    period_month: int = Form(...),
+    db: Session = Depends(get_db),
+) -> ClosePackStatus:
+    try:
+        result = run_close_pack_from_feed(
+            db,
+            bank_account_id=bank_account_id,
+            period_year=period_year,
+            period_month=period_month,
             actor="controller",
         )
         db.commit()

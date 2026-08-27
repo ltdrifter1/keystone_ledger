@@ -44,6 +44,9 @@ class BankAccount(Base):
     entity: Mapped["DimEntity"] = relationship(back_populates="bank_accounts")  # noqa: F821
     transactions: Mapped[list["Transaction"]] = relationship(back_populates="bank_account")
     reconciliations: Mapped[list["Reconciliation"]] = relationship(back_populates="bank_account")
+    feed_connection: Mapped[Optional["BankFeedConnection"]] = relationship(
+        back_populates="bank_account", uselist=False
+    )
 
 
 class Transaction(Base):
@@ -87,7 +90,7 @@ class Transaction(Base):
 
     # Workflow
     source_type: Mapped[str] = mapped_column(String(32), default="bank_import", index=True)
-    # bank_import | manual | erp_import | split_parent | journal
+    # bank_import | bank_feed | manual | erp_import | split_parent | journal
     status: Mapped[str] = mapped_column(String(32), default="uncategorized", index=True)
     # uncategorized | categorized | matched | excluded | void
     is_split: Mapped[bool] = mapped_column(Boolean, default=False)
@@ -165,6 +168,29 @@ class CategorizationRule(Base):
     last_hit_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     created_by: Mapped[str] = mapped_column(String(64), default="system")
+
+
+class BankFeedConnection(Base):
+    """Live bank-feed link for a bank account (Open Banking-style)."""
+
+    __tablename__ = "bank_feed_connections"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    bank_account_id: Mapped[int] = mapped_column(
+        ForeignKey("bank_accounts.id"), unique=True, index=True
+    )
+    provider: Mapped[str] = mapped_column(String(64), default="keystone_open_banking")
+    # disconnected | connected | error
+    status: Mapped[str] = mapped_column(String(32), default="disconnected", index=True)
+    last_synced_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    last_balance: Mapped[Optional[Decimal]] = mapped_column(Numeric(18, 2), nullable=True)
+    last_balance_as_of: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    connected_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    connected_by: Mapped[str] = mapped_column(String(64), default="controller")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    bank_account: Mapped["BankAccount"] = relationship(back_populates="feed_connection")
 
 
 class Reconciliation(Base):

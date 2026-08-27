@@ -23,6 +23,11 @@ class ReportFilter(BaseModel):
     quarter: Optional[int] = None
     consolidate: bool = False
     reporting_currency: str = "CAD"
+    compare_prior_period: bool = False
+    compare_prior_year: bool = False
+    compare_budget: bool = False
+    materiality_amount: Optional[Decimal] = None
+    materiality_pct: Optional[Decimal] = None
 
 
 class ReportLine(BaseModel):
@@ -33,6 +38,17 @@ class ReportLine(BaseModel):
     compare_amount: Optional[Decimal] = None
     variance: Optional[Decimal] = None
     variance_pct: Optional[Decimal] = None
+    prior_period_amount: Optional[Decimal] = None
+    prior_period_variance: Optional[Decimal] = None
+    prior_period_variance_pct: Optional[Decimal] = None
+    prior_year_amount: Optional[Decimal] = None
+    prior_year_variance: Optional[Decimal] = None
+    prior_year_variance_pct: Optional[Decimal] = None
+    budget_amount: Optional[Decimal] = None
+    budget_variance: Optional[Decimal] = None
+    budget_variance_pct: Optional[Decimal] = None
+    flux_flag: Optional[str] = None  # material | new | drop
+    flux_note: Optional[str] = None
     indent_level: int = 0
     is_bold: bool = False
     is_total: bool = False
@@ -51,6 +67,48 @@ class ReportOut(BaseModel):
     lines: list[ReportLine]
     generated_at: str
     currency: str
+    period_label: Optional[str] = None
+    prior_period_label: Optional[str] = None
+    prior_year_label: Optional[str] = None
+    budget_label: Optional[str] = None
+    columns: list[str] = Field(default_factory=lambda: ["amount"])
+    flux: list["FluxItem"] = Field(default_factory=list)
+
+
+class FluxItem(BaseModel):
+    report_type: str
+    line_code: str
+    line_label: str
+    wp_ref: Optional[str] = None
+    amount: Decimal
+    prior_amount: Optional[Decimal] = None
+    variance: Optional[Decimal] = None
+    variance_pct: Optional[Decimal] = None
+    flag: str
+    note: str
+    drillable: bool = False
+
+
+class AnalyticsKpi(BaseModel):
+    key: str
+    label: str
+    amount: Decimal
+    prior_amount: Optional[Decimal] = None
+    variance: Optional[Decimal] = None
+    variance_pct: Optional[Decimal] = None
+    tone: Optional[str] = None
+
+
+class AnalyticsPack(BaseModel):
+    period_label: str
+    currency: str
+    materiality_amount: Decimal
+    materiality_pct: Decimal
+    kpis: list[AnalyticsKpi] = Field(default_factory=list)
+    flux: list[FluxItem] = Field(default_factory=list)
+    statements: list[ReportOut] = Field(default_factory=list)
+    generated_at: str
+
 
 
 class DrillRequest(BaseModel):

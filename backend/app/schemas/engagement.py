@@ -14,6 +14,8 @@ class EngagementProgress(BaseModel):
     binder_reviewed: int = 0
     binder_untied: int = 0
     cash_ready: bool = False
+    feeds_connected: int = 0
+    feeds_pending: int = 0
 
 
 class EngagementQueueItem(BaseModel):
