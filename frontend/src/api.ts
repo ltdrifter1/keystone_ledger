@@ -393,9 +393,111 @@ export type ReconWorkspace = {
   }>
 }
 
+export type OpsKpi = {
+  key: string
+  label: string
+  amount: number
+  compare_amount?: number | null
+  variance?: number | null
+  variance_pct?: number | null
+  tone?: string
+}
+
+export type OpsLine = {
+  line_code: string
+  line_label: string
+  section: string
+  amount: number
+  compare_amount?: number | null
+  variance?: number | null
+  variance_pct?: number | null
+  indent_level: number
+  is_bold: boolean
+  is_total: boolean
+  drillable: boolean
+  account_id?: number | null
+  account_ids?: number[]
+  account_type_filter?: string | null
+  wp_ref?: string | null
+  href?: string | null
+}
+
+export type SalesView = {
+  title: string
+  period_label: string
+  period_year: number
+  period_month: number
+  currency: string
+  entity_id?: number | null
+  entity_code?: string | null
+  kpis: OpsKpi[]
+  lines: OpsLine[]
+  top_channels: OpsLine[]
+  report_filters: Record<string, unknown>
+}
+
+export type ExpensesView = {
+  title: string
+  period_label: string
+  period_year: number
+  period_month: number
+  currency: string
+  entity_id?: number | null
+  entity_code?: string | null
+  kpis: OpsKpi[]
+  lines: OpsLine[]
+  report_filters: Record<string, unknown>
+}
+
+export type CashBudgetRow = {
+  bank_account_id: number
+  bank_account_name: string
+  entity_code?: string | null
+  currency: string
+  book_balance: number
+  budget_balance?: number | null
+  variance?: number | null
+  variance_pct?: number | null
+  status: string
+  href: string
+}
+
+export type BudgetView = {
+  title: string
+  period_label: string
+  period_year: number
+  period_month: number
+  currency: string
+  entity_id?: number | null
+  entity_code?: string | null
+  pnl_kpis: OpsKpi[]
+  pnl_lines: OpsLine[]
+  cash_rows: CashBudgetRow[]
+  budget_facts_ready: boolean
+  report_filters: Record<string, unknown>
+}
+
 export const api = {
   health: () => request<{ status: string }>('/health'),
   dashboard: (ccy = 'CAD') => request<Dashboard>(`/dashboard?reporting_currency=${ccy}`),
+  salesView: (params: { year: number; month: number; entity_id?: number; period?: string }) => {
+    const qs = new URLSearchParams({ year: String(params.year), month: String(params.month) })
+    if (params.entity_id) qs.set('entity_id', String(params.entity_id))
+    if (params.period) qs.set('period', params.period)
+    return request<SalesView>(`/views/sales?${qs}`)
+  },
+  expensesView: (params: { year: number; month: number; entity_id?: number; period?: string }) => {
+    const qs = new URLSearchParams({ year: String(params.year), month: String(params.month) })
+    if (params.entity_id) qs.set('entity_id', String(params.entity_id))
+    if (params.period) qs.set('period', params.period)
+    return request<ExpensesView>(`/views/expenses?${qs}`)
+  },
+  budgetView: (params: { year: number; month: number; entity_id?: number; period?: string }) => {
+    const qs = new URLSearchParams({ year: String(params.year), month: String(params.month) })
+    if (params.entity_id) qs.set('entity_id', String(params.entity_id))
+    if (params.period) qs.set('period', params.period)
+    return request<BudgetView>(`/views/budget?${qs}`)
+  },
   entities: () => request<Entity[]>('/entities'),
   accounts: () => request<Account[]>('/accounts'),
   bankAccounts: () => request<BankAccount[]>('/bank-accounts'),

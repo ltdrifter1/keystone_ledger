@@ -9,11 +9,13 @@ from app.api import (
     reports,
     rules,
     transactions,
+    views,
     working_papers,
 )
 
 api_router = APIRouter(prefix="/api")
 api_router.include_router(dashboard.router, tags=["dashboard"])
+api_router.include_router(views.router, tags=["views"])
 api_router.include_router(close_pack.router, tags=["close-pack"])
 api_router.include_router(transactions.router, tags=["transactions"])
 api_router.include_router(imports.router, tags=["imports"])
