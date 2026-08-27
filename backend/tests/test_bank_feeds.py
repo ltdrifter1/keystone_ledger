@@ -41,6 +41,20 @@ def _fresh_bank(db) -> BankAccount:
     return bank
 
 
+def _retire(db, *banks: BankAccount) -> None:
+    """Keep isolated feed banks out of later all-bank close tests."""
+    from app.models import Reconciliation, ReconciliationItem
+    from sqlalchemy import delete
+
+    for bank in banks:
+        recons = list(db.scalars(select(Reconciliation).where(Reconciliation.bank_account_id == bank.id)))
+        for recon in recons:
+            db.execute(delete(ReconciliationItem).where(ReconciliationItem.reconciliation_id == recon.id))
+            db.delete(recon)
+        bank.is_active = False
+    db.commit()
+
+
 def test_list_feeds_auto_connects():
     res = client.get("/api/bank-feeds")
     assert res.status_code == 200, res.text
@@ -76,6 +90,7 @@ def test_sync_feed_imports_then_is_idempotent():
         db.commit()
         assert second["imported"] == 0
         assert second["pending_remaining"] == 0
+        _retire(db, bank)
     finally:
         db.close()
 
@@ -97,18 +112,43 @@ def test_close_pack_from_feed_uses_bank_balance():
         assert result["feed_imported"] >= 1
         assert result["statement_ending_balance"] is not None
         assert result["feed_status"] == "connected"
+        _retire(db, bank)
     finally:
         db.close()
 
-    banks = client.get("/api/bank-feeds").json()
-    target = next(b for b in banks if b["account_number"].startswith("1010") or b["account_number"] == "1050")
-    fd = {
-        "bank_account_id": str(target["bank_account_id"]),
-        "period_year": "2026",
-        "period_month": "7",
-    }
-    res = client.post("/api/close-pack/run-from-feed", data=fd)
+    entities = {e["code"]: e for e in client.get("/api/entities").json()}
+    created = client.post(
+        "/api/bank-accounts",
+        json={
+            "entity_id": entities["CAN"]["id"],
+            "name": "API Feed Close",
+            "account_number": f"API-{uuid4().hex[:8]}",
+            "currency": "CAD",
+            "institution": "WBC",
+            "opening_balance": "2500.00",
+        },
+    )
+    assert created.status_code == 200, created.text
+    bank_id = created.json()["id"]
+    conn = client.post(f"/api/bank-feeds/{bank_id}/connect")
+    assert conn.status_code == 200, conn.text
+    res = client.post(
+        "/api/close-pack/run-from-feed",
+        data={
+            "bank_account_id": str(bank_id),
+            "period_year": "2026",
+            "period_month": "7",
+        },
+    )
     assert res.status_code == 200, res.text
     body = res.json()
-    assert body["bank_account_id"] == target["bank_account_id"]
+    assert body["bank_account_id"] == bank_id
     assert body["statement_ending_balance"] is not None
+    assert body["feed_status"] == "connected"
+    db = SessionLocal()
+    try:
+        row = db.get(BankAccount, bank_id)
+        if row:
+            _retire(db, row)
+    finally:
+        db.close()

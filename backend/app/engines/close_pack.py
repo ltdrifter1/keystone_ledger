@@ -317,7 +317,9 @@ def build_close_pack_status(db: Session, recon: Reconciliation) -> dict:
     uncategorized_count = sum(1 for e in exceptions if e["kind"] == "uncategorized")
     duplicate_count = sum(1 for e in exceptions if e["kind"] == "duplicate")
 
-    return {
+    from app.engines.bank_feeds import feed_snapshot
+
+    status = {
         "reconciliation_id": recon.id,
         "bank_account_id": recon.bank_account_id,
         "bank_account_name": bank.name if bank else None,
@@ -345,8 +347,6 @@ def build_close_pack_status(db: Session, recon: Reconciliation) -> dict:
         "locked_at": recon.locked_at.isoformat() if recon.locked_at else None,
         "locked_by": recon.locked_by,
     }
-    from app.engines.bank_feeds import feed_snapshot
-
     status.update(feed_snapshot(db, recon.bank_account_id))
     return status
 

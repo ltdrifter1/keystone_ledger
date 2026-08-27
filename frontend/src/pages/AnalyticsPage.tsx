@@ -19,7 +19,7 @@ export function AnalyticsPage({ embedded = false }: { embedded?: boolean }) {
   const filters: ReportFilters = useMemo(
     () => ({
       report_type: 'income_statement',
-      period: 'ytd',
+      period: 'monthly',
       year,
       month,
       scenario_id: 1,
@@ -66,7 +66,7 @@ export function AnalyticsPage({ embedded = false }: { embedded?: boolean }) {
       {embedded && (
         <div className="toolbar" style={{ marginBottom: '0.85rem' }}>
           <span className="hint">
-            Material flux vs prior period / prior year / budget. Materiality{' '}
+            Material flux vs prior period / prior year / budget for this month. Materiality{' '}
             {pack ? `${money(pack.materiality_amount)} or ${Number(pack.materiality_pct)}%` : '…'}.
           </span>
           <button className="btn" onClick={() => void api.exportStatements(filters)} disabled={loading}>
