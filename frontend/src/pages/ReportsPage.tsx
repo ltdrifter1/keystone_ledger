@@ -30,7 +30,7 @@ export function ReportsPage() {
   const [reportPeriod, setReportPeriod] = useState(
     searchParams.get('type') === 'balance_sheet' ? 'monthly' : 'ytd',
   )
-  const [entityId, setEntityId] = useState(engagementEntityId || '')
+  const [entityId, setEntityIdLocal] = useState(engagementEntityId || '')
   const [scenarioId, setScenarioId] = useState('1')
   const [compareScenarioId, setCompareScenarioId] = useState('')
   const [entities, setEntities] = useState<Entity[]>([])
@@ -52,8 +52,13 @@ export function ReportsPage() {
   }, [])
 
   useEffect(() => {
-    if (engagementEntityId) setEntityId(engagementEntityId)
+    if (engagementEntityId) setEntityIdLocal(engagementEntityId)
   }, [engagementEntityId])
+
+  const setEntityId = (id: string) => {
+    setEntityIdLocal(id)
+    if (id) setEngagementEntityId(id)
+  }
 
   useEffect(() => {
     const t = searchParams.get('type')
@@ -176,12 +181,8 @@ export function ReportsPage() {
         <select
           className="select"
           value={entityId}
-          onChange={(e) => {
-            setEntityId(e.target.value)
-            if (e.target.value) setEngagementEntityId(e.target.value)
-          }}
+          onChange={(e) => setEntityId(e.target.value)}
         >
-          <option value="">All entities (sum — not eliminated)</option>
           {entities.map((e) => (
             <option key={e.id} value={e.id}>
               {e.code} — {e.name}

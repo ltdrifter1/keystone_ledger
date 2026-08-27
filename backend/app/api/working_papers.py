@@ -29,9 +29,10 @@ def list_working_paper_templates() -> WorkingPaperTemplateListOut:
 def get_binder(
     year: int = Query(...),
     month: int = Query(..., ge=1, le=12),
+    entity_id: int | None = None,
     db: Session = Depends(get_db),
 ) -> BinderOut:
-    data = build_binder(db, year, month)
+    data = build_binder(db, year, month, entity_id=entity_id)
     # Persist any side-effects from sync inside close overview (totals refresh)
     db.commit()
     return BinderOut.model_validate(data)
@@ -42,10 +43,11 @@ def get_binder_doc(
     key: str,
     year: int = Query(...),
     month: int = Query(..., ge=1, le=12),
+    entity_id: int | None = None,
     db: Session = Depends(get_db),
 ) -> BinderDocumentOut:
     try:
-        data = get_binder_document(db, year, month, key)
+        data = get_binder_document(db, year, month, key, entity_id=entity_id)
         db.commit()
         return BinderDocumentOut.model_validate(data)
     except ValueError as exc:
@@ -58,6 +60,7 @@ def update_binder_doc(
     payload: BinderDocumentUpdate,
     year: int = Query(...),
     month: int = Query(..., ge=1, le=12),
+    entity_id: int | None = None,
     db: Session = Depends(get_db),
 ) -> BinderDocumentOut:
     try:
@@ -72,6 +75,7 @@ def update_binder_doc(
             reviewer=payload.reviewer,
             status=payload.status,
             actor="controller",
+            entity_id=entity_id,
         )
         db.commit()
         return BinderDocumentOut.model_validate(data)

@@ -26,7 +26,6 @@ export function Layout() {
   const { year, month, entityCode, label } = useEngagement()
 
   const withPeriod = (to: string) => {
-    if (to === '/') return to
     const sep = to.includes('?') ? '&' : '?'
     return `${to}${sep}year=${year}&month=${month}`
   }

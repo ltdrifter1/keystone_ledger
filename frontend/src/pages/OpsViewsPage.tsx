@@ -189,7 +189,7 @@ export function OpsViewPage({ mode, embedded = false }: { mode: Mode; embedded?:
           <h2>{mode === 'budget' ? 'P&L vs budget' : `${title} detail`}</h2>
           <span className="hint">
             {showCompare ? 'Actual vs budget' : 'Actual'} ·{' '}
-            <Link to="/statements?tab=statement">Open statement</Link>
+            <Link to={`/statements?tab=statement&year=${year}&month=${month}`}>Open statement</Link>
           </span>
         </div>
         {lines && <LinesTable lines={lines} showCompare={showCompare} />}

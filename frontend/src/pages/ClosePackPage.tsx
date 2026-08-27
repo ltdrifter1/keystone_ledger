@@ -82,6 +82,15 @@ export function ClosePackPage() {
     [year, month, bankId, mode, kindFilter, setSearchParams],
   )
 
+  // Keep URL year/month aligned with sticky engagement chip
+  useEffect(() => {
+    const currentY = searchParams.get('year')
+    const currentM = searchParams.get('month')
+    if (currentY === year && currentM === String(Number(month))) return
+    syncUrl({})
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [year, month])
+
   const loadOverview = useCallback(async () => {
     const data = await api.closeMonthOverview(Number(year), Number(month))
     setOverview(data)
@@ -119,9 +128,19 @@ export function ClosePackPage() {
         const fromUrl = searchParams.get('bank')
         const targetId = fromUrl || bankId
         const urlMode = (searchParams.get('mode') as Mode) || mode
+        const urlFilter = searchParams.get('filter')
         const inScope = (id: string) => scoped.some((p) => String(p.bank_account_id) === String(id))
         if (targetId && inScope(targetId)) {
           const pack = scoped.find((p) => String(p.bank_account_id) === String(targetId))
+          if (urlFilter != null) {
+            setKindFilter(urlFilter)
+            setShowUnclearedOnly(urlFilter === 'uncleared')
+          }
+          if (pack) void openPack(pack, { skipUrl: true, mode: urlMode })
+        } else if (urlFilter) {
+          setKindFilter(urlFilter)
+          setShowUnclearedOnly(urlFilter === 'uncleared')
+          const pack = scoped[0]
           if (pack) void openPack(pack, { skipUrl: true, mode: urlMode })
         } else if (data.next_actions[0]) {
           const action = data.next_actions.find((a) =>
@@ -474,6 +493,9 @@ export function ClosePackPage() {
       )}
 
       <div className="close-bank-strip">
+        {entityPacks.length === 0 && (
+          <p className="hint">No bank accounts for {entityCode ?? 'this entity'}.</p>
+        )}
         {entityPacks.map((p) => (
           <button
             key={p.bank_account_id}
@@ -545,7 +567,7 @@ export function ClosePackPage() {
               disabled={running || active?.is_locked}
               onClick={() => void runPack()}
             >
-              {running ? 'Running…' : active?.reconciliation_id ? 'Update close pack' : 'Run close pack'}
+              {running ? 'Running…' : active?.reconciliation_id ? 'Update recon pack' : 'Run recon pack'}
             </button>
             <p className="hint">
               Imports (optional), applies rules, opens the recon, auto-clears categorized in-period items.
@@ -665,7 +687,7 @@ export function ClosePackPage() {
 
               {!active.reconciliation_id && (
                 <p className="hint" style={{ padding: '0 1rem 1rem' }}>
-                  Not started. Enter the statement ending balance and run the close pack.
+                  Not started. Enter the statement ending balance and run the recon pack.
                 </p>
               )}
 

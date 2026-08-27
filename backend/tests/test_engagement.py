@@ -47,6 +47,7 @@ def test_engagement_home_engine_entity_scoped():
 def test_engagement_home_api():
     entities = {e["code"]: e for e in client.get("/api/entities").json()}
     can_id = entities["CAN"]["id"]
+    usa_id = entities["USA"]["id"]
     res = client.get(f"/api/engagement/home?year=2026&month=6&entity_id={can_id}")
     assert res.status_code == 200, res.text
     body = res.json()
@@ -54,3 +55,27 @@ def test_engagement_home_api():
     assert body["progress"]["banks_total"] >= 1
     assert body["queue"]
     assert body["work_href"].startswith("/work?")
+
+    can_banks = body["progress"]["banks_total"]
+    usa = client.get(f"/api/engagement/home?year=2026&month=6&entity_id={usa_id}").json()
+    assert usa["entity_code"] == "USA"
+    assert usa["progress"]["banks_total"] < can_banks
+
+
+def test_binder_cash_entity_scoped():
+    entities = {e["code"]: e for e in client.get("/api/entities").json()}
+    can_id = entities["CAN"]["id"]
+    usa_id = entities["USA"]["id"]
+    can = client.get(f"/api/working-papers/binder/cash?year=2026&month=6&entity_id={can_id}")
+    assert can.status_code == 200, can.text
+    can_body = can.json()
+    assert can_body["cash_schedule"]["entity_id"] == can_id
+    assert can_body["cash_schedule"]["banks_total"] >= 1
+    assert all(
+        (b.get("entity_code") == "CAN" or b.get("entity_id") == can_id)
+        for b in can_body["cash_schedule"]["banks"]
+    )
+
+    usa = client.get(f"/api/working-papers/binder/cash?year=2026&month=6&entity_id={usa_id}")
+    assert usa.status_code == 200, usa.text
+    assert usa.json()["cash_schedule"]["banks_total"] < can_body["cash_schedule"]["banks_total"]

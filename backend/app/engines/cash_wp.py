@@ -20,16 +20,24 @@ def _period_end(year: int, month: int):
     return date(year, month, monthrange(year, month)[1])
 
 
-def build_cash_recon_schedule(db: Session, year: int, month: int) -> dict:
+def build_cash_recon_schedule(
+    db: Session,
+    year: int,
+    month: int,
+    entity_id: int | None = None,
+) -> dict:
     """
     Per-bank recon schedule for Cash WP C.1.
 
-    Tied means every bank recon difference is zero (started packs) and
-    consolidated BS cash ≈ sum of period-end bank books in reporting currency.
+    When entity_id is set, only that entity's banks and BS cash lead are used
+    for tie / prepare / review gates (engagement-scoped close).
     """
     end = _period_end(year, month)
     close = month_close_overview(db, year, month)
     reporting_currency = "CAD"
+    packs = close["packs"]
+    if entity_id is not None:
+        packs = [p for p in packs if p.get("entity_id") == entity_id]
 
     banks = []
     banks_tied = 0
@@ -39,7 +47,7 @@ def build_cash_recon_schedule(db: Session, year: int, month: int) -> dict:
     statement_reporting_total = Decimal("0")
     currencies: set[str] = set()
 
-    for pack in close["packs"]:
+    for pack in packs:
         bank_id = pack["bank_account_id"]
         currency = pack.get("currency") or "CAD"
         currencies.add(currency)
@@ -99,6 +107,7 @@ def build_cash_recon_schedule(db: Session, year: int, month: int) -> dict:
             {
                 "bank_account_id": bank_id,
                 "bank_account_name": pack.get("bank_account_name"),
+                "entity_id": pack.get("entity_id"),
                 "entity_code": pack.get("entity_code"),
                 "currency": currency,
                 "reconciliation_id": pack.get("reconciliation_id"),
@@ -124,7 +133,7 @@ def build_cash_recon_schedule(db: Session, year: int, month: int) -> dict:
             }
         )
 
-    # BS cash lead
+    # BS cash lead — entity-scoped when engagement entity is set
     bs = build_report(
         db,
         ReportFilter(
@@ -134,7 +143,8 @@ def build_cash_recon_schedule(db: Session, year: int, month: int) -> dict:
             month=month,
             scenario_id=1,
             reporting_currency=reporting_currency,
-            consolidate=True,
+            consolidate=entity_id is None,
+            entity_ids=[entity_id] if entity_id is not None else None,
         ),
     )
     gl_line = next((l for l in bs.lines if l.line_code == "BS_CASH"), None)
@@ -155,7 +165,9 @@ def build_cash_recon_schedule(db: Session, year: int, month: int) -> dict:
     can_review = all_locked and all_bank_tied and gl_agrees
 
     gate_messages: list[str] = []
-    if not all_started:
+    if not banks_total:
+        gate_messages.append("No bank accounts for this entity")
+    if not all_started and banks_total:
         not_started = [b["bank_account_name"] for b in banks if b["status"] == "not_started"]
         gate_messages.append(f"Start recon for: {', '.join(str(n) for n in not_started)}")
     untied_banks = [b["bank_account_name"] for b in banks if not b["is_tied"] and b["status"] != "not_started"]
@@ -163,7 +175,7 @@ def build_cash_recon_schedule(db: Session, year: int, month: int) -> dict:
         gate_messages.append(f"Difference still open: {', '.join(str(n) for n in untied_banks)}")
     if all_started and not all_ready_or_locked:
         gate_messages.append("Resolve blocking exceptions so every bank is ready to lock")
-    if not gl_agrees:
+    if banks_total and not gl_agrees:
         gate_messages.append(
             f"BS cash ({float(gl_amount):,.2f} {reporting_currency}) ≠ sum of bank books "
             f"({float(book_reporting_total):,.2f} {reporting_currency})"
@@ -189,6 +201,7 @@ def build_cash_recon_schedule(db: Session, year: int, month: int) -> dict:
         "period_label": f"{year}-{month:02d}",
         "period_end": end.isoformat(),
         "reporting_currency": reporting_currency,
+        "entity_id": entity_id,
         "banks": banks,
         "gl_statement_amount": float(gl_amount),
         "banks_book_reporting_total": float(book_reporting_total),

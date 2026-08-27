@@ -55,7 +55,10 @@ def _base_filters(
     )
 
 
-def _line_dict(line) -> dict:
+def _line_dict(line, *, year: int | None = None, month: int | None = None) -> dict:
+    href = f"/statements?tab=statement&type=income_statement&line={line.line_code}"
+    if year and month:
+        href += f"&year={year}&month={month}"
     return {
         "line_code": line.line_code,
         "line_label": line.line_label,
@@ -72,21 +75,30 @@ def _line_dict(line) -> dict:
         "account_ids": list(line.account_ids or []),
         "account_type_filter": line.account_type_filter,
         "wp_ref": line.wp_ref,
-        "href": f"/statements?tab=statement&type=income_statement&line={line.line_code}",
+        "href": href,
     }
 
 
-def _pick_lines(report, *, prefixes: tuple[str, ...] = (), codes: set[str] | None = None, sections: set[str] | None = None):
+def _pick_lines(
+    report,
+    *,
+    year: int | None = None,
+    month: int | None = None,
+    prefixes: tuple[str, ...] = (),
+    codes: set[str] | None = None,
+    sections: set[str] | None = None,
+):
     out = []
     for line in report.lines:
         if codes and line.line_code in codes:
-            out.append(_line_dict(line))
+            out.append(_line_dict(line, year=year, month=month))
             continue
         if prefixes and any(line.line_code.startswith(p) for p in prefixes):
-            out.append(_line_dict(line))
+            out.append(_line_dict(line, year=year, month=month))
             continue
         if sections and line.section in sections and (line.account_id or line.is_total or line.is_bold):
-            out.append(_line_dict(line))
+            out.append(_line_dict(line, year=year, month=month))
+            continue
     return out
 
 
@@ -188,12 +200,14 @@ def build_sales_view(
     report = build_report(db, filters)
     lines = _pick_lines(
         report,
+        year=year,
+        month=month,
         prefixes=("REV", "TOT_REV", "GP"),
         codes={"REV", "TOT_REV", "GP", "REV_PROD", "REV_SVC", "REV_SHIP", "REV_RET"},
     )
     # Prefer layout revenue section if prefixes missed custom layouts
     if len(lines) < 2:
-        lines = _pick_lines(report, sections={"revenue", "totals"})
+        lines = _pick_lines(report, year=year, month=month, sections={"revenue", "totals"})
         lines = [l for l in lines if "REV" in l["line_code"] or l["line_code"] in ("GP", "TOT_REV")]
 
     kpis = []
@@ -246,7 +260,7 @@ def build_expenses_view(
     report = build_report(db, filters)
     keep_prefixes = ("COGS", "TOT_COGS", "OPEX", "EXP_", "TOT_OPEX", "TOT_EXP", "BTL", "TOT_BTL")
     lines = [
-        _line_dict(l)
+        _line_dict(l, year=year, month=month)
         for l in report.lines
         if any(l.line_code.startswith(p) for p in keep_prefixes) or l.line_code in {"COGS", "OPEX", "BTL"}
     ]
@@ -353,7 +367,11 @@ def build_budget_view(
         "EXP_ADM",
         "EXP_MKT",
     }
-    pnl_lines = [_line_dict(l) for l in report.lines if l.line_code in focus_codes or l.is_total]
+    pnl_lines = [
+        _line_dict(l, year=year, month=month)
+        for l in report.lines
+        if l.line_code in focus_codes or l.is_total
+    ]
     # Deduplicate while preserving order
     seen = set()
     unique_lines = []

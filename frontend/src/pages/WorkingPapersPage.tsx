@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { CheckCircle2, ClipboardList, ExternalLink, AlertTriangle } from 'lucide-react'
 import { api, type BinderDocument, type BinderOut } from '../api'
-import { usePeriod } from '../period/PeriodContext'
+import { useEngagement } from '../period/PeriodContext'
 import { money } from '../lib/format'
 
 const SECTION_LABEL: Record<string, string> = {
@@ -13,13 +13,14 @@ const SECTION_LABEL: Record<string, string> = {
 }
 
 export function WorkingPapersPage() {
-  const { year, month, setPeriod, label, entityCode } = usePeriod()
+  const { year, month, setPeriod, label, entityCode, entityId } = useEngagement()
   const [searchParams, setSearchParams] = useSearchParams()
   const [binder, setBinder] = useState<BinderOut | null>(null)
   const [doc, setDoc] = useState<BinderDocument | null>(null)
   const [activeKey, setActiveKey] = useState<string | null>(searchParams.get('key'))
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+  const [loading, setLoading] = useState(true)
 
   // Sync URL period → context
   useEffect(() => {
@@ -36,22 +37,24 @@ export function WorkingPapersPage() {
   }, [])
 
   const loadBinder = useCallback(async () => {
-    const data = await api.binder(year, month)
+    const data = await api.binder(year, month, entityId || undefined)
     setBinder(data)
     return data
-  }, [year, month])
+  }, [year, month, entityId])
 
   const loadDoc = useCallback(
     async (key: string) => {
-      const data = await api.binderDocument(key, year, month)
+      const data = await api.binderDocument(key, year, month, entityId || undefined)
       setDoc(data)
       return data
     },
-    [year, month],
+    [year, month, entityId],
   )
 
   useEffect(() => {
+    if (!entityId) return
     setError(null)
+    setLoading(true)
     loadBinder()
       .then((data) => {
         const fromUrl = searchParams.get('key')
@@ -67,6 +70,7 @@ export function WorkingPapersPage() {
         }
       })
       .catch((e: Error) => setError(e.message))
+      .finally(() => setLoading(false))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loadBinder])
 
@@ -75,8 +79,9 @@ export function WorkingPapersPage() {
     params.set('year', String(year))
     params.set('month', String(month))
     if (activeKey) params.set('key', activeKey)
+    if (entityId) params.set('entity_id', entityId)
     setSearchParams(params, { replace: true })
-  }, [year, month, activeKey, setSearchParams])
+  }, [year, month, activeKey, entityId, setSearchParams])
 
   const selectDoc = async (key: string) => {
     setActiveKey(key)
@@ -98,7 +103,13 @@ export function WorkingPapersPage() {
     if (!activeKey) return
     setSaving(true)
     try {
-      const updated = await api.updateBinderDocument(activeKey, year, month, patch)
+      const updated = await api.updateBinderDocument(
+        activeKey,
+        year,
+        month,
+        patch,
+        entityId || undefined,
+      )
       setDoc(updated)
       await loadBinder()
     } catch (e) {
@@ -142,6 +153,7 @@ export function WorkingPapersPage() {
       </div>
 
       {error && <div className="error">{error}</div>}
+      {loading && !binder && <p className="hint">Loading binder…</p>}
 
       <div className="wp-pack-layout">
         <section className="panel">
@@ -197,7 +209,7 @@ export function WorkingPapersPage() {
                   </Link>
                   {doc.close_href && (
                     <Link className="btn ghost" to={doc.close_href}>
-                      Close pack <ExternalLink size={14} />
+                      Work desk <ExternalLink size={14} />
                     </Link>
                   )}
                 </div>

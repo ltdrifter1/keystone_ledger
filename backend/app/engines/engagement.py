@@ -42,12 +42,9 @@ def build_engagement_home(
     else:
         uncategorized = db.scalar(uncat_q) or 0
 
-    binder = build_binder(db, year, month)
-    cash = build_cash_recon_schedule(db, year, month)
-    if entity_id:
-        cash_banks = [b for b in cash["banks"] if _bank_entity(db, b["bank_account_id"]) == entity_id]
-    else:
-        cash_banks = cash["banks"]
+    binder = build_binder(db, year, month, entity_id=entity_id)
+    cash = build_cash_recon_schedule(db, year, month, entity_id=entity_id)
+    cash_banks = cash["banks"]
 
     queue: list[dict] = []
     step = 1
@@ -147,8 +144,8 @@ def build_engagement_home(
         )
         step += 1
 
-    # Cash WP gate
-    entity_cash_tied = all(b.get("is_tied") for b in cash_banks) if cash_banks else False
+    # Cash WP gate — entity-scoped schedule
+    entity_cash_tied = bool(cash.get("is_tied")) if cash_banks else False
     if cash_banks and not entity_cash_tied:
         queue.append(
             {
@@ -158,14 +155,14 @@ def build_engagement_home(
                 "priority": 60,
                 "title": "Finish Cash WP C.1",
                 "detail": "Bank diffs or BS cash vs books still open — prepare is gated.",
-                "href": f"/binder?year={year}&month={month}&key=cash",
+                "href": f"/binder?year={year}&month={month}&key=cash"
+                + (f"&entity_id={entity_id}" if entity_id else ""),
                 "count": None,
                 "status": "open",
             }
         )
         step += 1
     elif cash_banks and cash.get("can_prepare") and not cash.get("can_review"):
-        # check binder cash status
         cash_doc = next((d for d in binder["documents"] if d["key"] == "cash"), None)
         if cash_doc and cash_doc["status"] == "open":
             queue.append(
@@ -176,7 +173,8 @@ def build_engagement_home(
                     "priority": 65,
                     "title": "Prepare Cash WP C.1",
                     "detail": "Banks are ready — sign off preparer on Cash.",
-                    "href": f"/binder?year={year}&month={month}&key=cash",
+                    "href": f"/binder?year={year}&month={month}&key=cash"
+                    + (f"&entity_id={entity_id}" if entity_id else ""),
                     "count": None,
                     "status": "ready",
                 }
@@ -193,7 +191,7 @@ def build_engagement_home(
                 "priority": 70,
                 "title": f"Tie {doc['wp_ref']} · {doc['title']}",
                 "detail": f"Lead difference {doc.get('difference')}",
-                "href": doc["href"].replace("/working-papers", "/binder"),
+                "href": doc["href"],
                 "count": None,
                 "status": "open",
             }
@@ -214,7 +212,7 @@ def build_engagement_home(
                 "priority": 80,
                 "title": f"Sign {doc['wp_ref']} · {doc['title']}",
                 "detail": f"{doc['procedures_done']}/{doc['procedure_count']} procedures · status {doc['status']}",
-                "href": doc["href"].replace("/working-papers", "/binder"),
+                "href": doc["href"],
                 "count": None,
                 "status": "ready" if doc.get("is_tied") else "open",
             }

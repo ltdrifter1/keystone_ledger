@@ -710,10 +710,16 @@ export const api = {
   workingPapers: () =>
     request<{ templates: WorkingPaperTemplate[]; count: number }>('/working-papers'),
   workingPaper: (key: string) => request<WorkingPaperTemplate>(`/working-papers/${key}`),
-  binder: (year: number, month: number) =>
-    request<BinderOut>(`/working-papers/binder?year=${year}&month=${month}`),
-  binderDocument: (key: string, year: number, month: number) =>
-    request<BinderDocument>(`/working-papers/binder/${key}?year=${year}&month=${month}`),
+  binder: (year: number, month: number, entityId?: number | string) => {
+    const qs = new URLSearchParams({ year: String(year), month: String(month) })
+    if (entityId) qs.set('entity_id', String(entityId))
+    return request<BinderOut>(`/working-papers/binder?${qs}`)
+  },
+  binderDocument: (key: string, year: number, month: number, entityId?: number | string) => {
+    const qs = new URLSearchParams({ year: String(year), month: String(month) })
+    if (entityId) qs.set('entity_id', String(entityId))
+    return request<BinderDocument>(`/working-papers/binder/${key}?${qs}`)
+  },
   updateBinderDocument: (
     key: string,
     year: number,
@@ -725,12 +731,16 @@ export const api = {
       reviewer?: string | null
       status?: string | null
     },
-  ) =>
-    request<BinderDocument>(`/working-papers/binder/${key}?year=${year}&month=${month}`, {
+    entityId?: number | string,
+  ) => {
+    const qs = new URLSearchParams({ year: String(year), month: String(month) })
+    if (entityId) qs.set('entity_id', String(entityId))
+    return request<BinderDocument>(`/working-papers/binder/${key}?${qs}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
-    }),
+    })
+  },
 }
 
 export type BinderDocumentIndex = {
@@ -764,6 +774,7 @@ export type BinderOut = {
   period_month: number
   period_label: string
   period_end: string
+  entity_id?: number | null
   documents: BinderDocumentIndex[]
   summary: {
     total: number
