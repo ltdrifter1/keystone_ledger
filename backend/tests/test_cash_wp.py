@@ -71,7 +71,7 @@ def test_cash_wp_tied_after_all_banks_locked_clean():
     """Use an isolated future period so we don't lock the shared seed month."""
     db = SessionLocal()
     try:
-        year, month = 2098, 6
+        year, month = 2099, 6
         banks = list(db.scalars(select(BankAccount).where(BankAccount.is_active == True)).all())
         assert banks
         end = date(year, month, monthrange(year, month)[1])

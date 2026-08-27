@@ -1,14 +1,25 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { ArrowRight, CheckCircle2, ClipboardList, FileBarChart2, Sparkles } from 'lucide-react'
 import { api, type EngagementHome } from '../api'
 import { useEngagement } from '../period/PeriodContext'
 
 export function HomePage() {
-  const { year, month, label, entityId, entityCode } = useEngagement()
+  const { year, month, label, entityId, entityCode, setPeriod } = useEngagement()
+  const [searchParams] = useSearchParams()
   const [home, setHome] = useState<EngagementHome | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    const y = searchParams.get('year')
+    const m = searchParams.get('month')
+    if (y && m) {
+      const yi = Number(y)
+      const mi = Number(m)
+      if (yi && mi && (yi !== year || mi !== month)) setPeriod(yi, mi)
+    }
+  }, [searchParams, year, month, setPeriod])
 
   const load = useCallback(async () => {
     if (!entityId) return
@@ -27,6 +38,7 @@ export function HomePage() {
     void load()
   }, [load])
 
+  if (!entityId) return <p className="hint">Loading engagement context…</p>
   if (error) return <div className="error">{error}</div>
   if (loading || !home) return <p className="hint">Loading engagement…</p>
 
