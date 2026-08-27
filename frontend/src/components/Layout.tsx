@@ -1,48 +1,35 @@
 import { NavLink, Outlet } from 'react-router-dom'
 import {
   LayoutDashboard,
-  ArrowLeftRight,
-  Landmark,
-  FileBarChart2,
-  Settings,
   Sparkles,
   ClipboardList,
-  TrendingUp,
-  Receipt,
-  Wallet,
+  FileBarChart2,
+  Settings,
+  Landmark,
 } from 'lucide-react'
-import { PeriodChip } from './PeriodChip'
-import { usePeriod } from '../period/PeriodContext'
+import { EngagementChip } from './PeriodChip'
+import { useEngagement } from '../period/PeriodContext'
 
-const links = [
-  { to: '/', label: 'Dashboard', icon: LayoutDashboard },
-  { to: '/sales', label: 'Sales', icon: TrendingUp },
-  { to: '/expenses', label: 'Expenses', icon: Receipt },
-  { to: '/budget', label: 'Budget', icon: Wallet },
-  { to: '/close', label: 'Close', icon: Sparkles },
-  { to: '/working-papers', label: 'Working Papers', icon: ClipboardList },
-  { to: '/transactions', label: 'Transactions', icon: ArrowLeftRight },
-  { to: '/reports', label: 'Reports', icon: FileBarChart2 },
-  { to: '/bank-accounts', label: 'Bank Accounts', icon: Landmark },
+const primary = [
+  { to: '/', label: 'Home', icon: LayoutDashboard },
+  { to: '/work', label: 'Work', icon: Sparkles },
+  { to: '/binder', label: 'Binder', icon: ClipboardList },
+  { to: '/statements', label: 'Statements', icon: FileBarChart2 },
+]
+
+const secondary = [
+  { to: '/bank-accounts', label: 'Banks', icon: Landmark },
   { to: '/settings', label: 'Settings', icon: Settings },
 ]
 
 export function Layout() {
-  const { year, month } = usePeriod()
-  const periodLinks = links.map((link) => {
-    if (
-      link.to === '/close' ||
-      link.to === '/working-papers' ||
-      link.to === '/reports' ||
-      link.to === '/sales' ||
-      link.to === '/expenses' ||
-      link.to === '/budget'
-    ) {
-      const sep = link.to.includes('?') ? '&' : '?'
-      return { ...link, to: `${link.to}${sep}year=${year}&month=${month}` }
-    }
-    return link
-  })
+  const { year, month, entityCode, label } = useEngagement()
+
+  const withPeriod = (to: string) => {
+    if (to === '/') return to
+    const sep = to.includes('?') ? '&' : '?'
+    return `${to}${sep}year=${year}&month=${month}`
+  }
 
   return (
     <div className="app-shell">
@@ -51,27 +38,36 @@ export function Layout() {
           <div className="brand-mark">
             Keystone <span>Ledger</span>
           </div>
-          <div className="brand-sub">Controller reporting · bank to statements</div>
+          <div className="brand-sub">
+            {entityCode ?? '—'} · {label} · engagement close
+          </div>
         </div>
-        <PeriodChip />
+        <EngagementChip />
         <nav className="nav">
-          {periodLinks.map(({ to, label, icon: Icon }) => (
+          {primary.map(({ to, label: name, icon: Icon }) => (
             <NavLink
-              key={label}
-              to={to}
-              end={label === 'Dashboard'}
+              key={name}
+              to={withPeriod(to)}
+              end={to === '/'}
               className={({ isActive }) => (isActive ? 'active' : '')}
             >
               <Icon size={16} />
-              {label}
+              {name}
+            </NavLink>
+          ))}
+        </nav>
+        <div className="nav-divider" />
+        <nav className="nav nav-secondary">
+          {secondary.map(({ to, label: name, icon: Icon }) => (
+            <NavLink key={name} to={to} className={({ isActive }) => (isActive ? 'active' : '')}>
+              <Icon size={16} />
+              {name}
             </NavLink>
           ))}
         </nav>
         <div className="nav-meta">
-          One engagement period for Close, Reports, Sales, Expenses, Budget, and the WP binder.
-          <br />
-          <span className="kbd">/</span> search · <span className="kbd">R</span> rules ·{' '}
-          <span className="kbd">S</span> split
+          Flow: <strong>Home</strong> queue → <strong>Work</strong> (bank desk) →{' '}
+          <strong>Binder</strong> sign-off → <strong>Statements</strong>.
         </div>
       </aside>
       <main className="main">

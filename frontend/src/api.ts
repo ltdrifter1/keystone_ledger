@@ -299,6 +299,7 @@ export type ClosePackStatus = {
   reconciliation_id?: number | null
   bank_account_id: number
   bank_account_name?: string | null
+  entity_id?: number | null
   entity_code?: string | null
   currency?: string | null
   period_year: number
@@ -477,6 +478,39 @@ export type BudgetView = {
   report_filters: Record<string, unknown>
 }
 
+export type EngagementHome = {
+  period_year: number
+  period_month: number
+  period_label: string
+  entity_id?: number | null
+  entity_code?: string | null
+  entity_name?: string | null
+  progress: {
+    banks_total: number
+    banks_locked: number
+    blocking_total: number
+    uncategorized: number
+    binder_total: number
+    binder_reviewed: number
+    binder_untied: number
+    cash_ready: boolean
+  }
+  queue: Array<{
+    key: string
+    step: number
+    phase: string
+    priority: number
+    title: string
+    detail: string
+    href: string
+    count?: number | null
+    status: string
+  }>
+  work_href: string
+  binder_href: string
+  statements_href: string
+}
+
 export const api = {
   health: () => request<{ status: string }>('/health'),
   dashboard: (ccy = 'CAD') => request<Dashboard>(`/dashboard?reporting_currency=${ccy}`),
@@ -497,6 +531,11 @@ export const api = {
     if (params.entity_id) qs.set('entity_id', String(params.entity_id))
     if (params.period) qs.set('period', params.period)
     return request<BudgetView>(`/views/budget?${qs}`)
+  },
+  engagementHome: (params: { year: number; month: number; entity_id?: number }) => {
+    const qs = new URLSearchParams({ year: String(params.year), month: String(params.month) })
+    if (params.entity_id) qs.set('entity_id', String(params.entity_id))
+    return request<EngagementHome>(`/engagement/home?${qs}`)
   },
   entities: () => request<Entity[]>('/entities'),
   accounts: () => request<Account[]>('/accounts'),

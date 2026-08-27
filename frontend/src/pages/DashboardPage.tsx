@@ -12,13 +12,13 @@ const KPI_DRILL: Record<string, { line_code: string; label: string }> = {
 }
 
 const JOB_KPI_HREF: Record<string, string> = {
-  close_progress: '/close',
-  outstanding_reconciliations: '/close',
-  uncategorized: '/close?filter=uncategorized',
-  unmatched_ic: '/close?filter=intercompany',
-  blocking_exceptions: '/close',
-  binder_ready: '/working-papers',
-  binder_untied: '/working-papers',
+  close_progress: '/work',
+  outstanding_reconciliations: '/work',
+  uncategorized: '/work?filter=uncategorized',
+  unmatched_ic: '/work?filter=intercompany',
+  blocking_exceptions: '/work',
+  binder_ready: '/binder',
+  binder_untied: '/binder',
 }
 
 export function DashboardPage() {
@@ -92,8 +92,8 @@ export function DashboardPage() {
 
   const summary = data.close_summary
   const closeHref = summary
-    ? `/close?year=${summary.period_year}&month=${summary.period_month}`
-    : '/close'
+    ? `/work?year=${summary.period_year}&month=${summary.period_month}`
+    : '/work'
   const jobKeys = new Set(Object.keys(JOB_KPI_HREF))
   const jobKpis = data.kpis.filter((k) => jobKeys.has(k.key))
   const contextKpis = data.kpis.filter((k) => !jobKeys.has(k.key))
@@ -185,7 +185,7 @@ export function DashboardPage() {
           const binder = data.binder_summary
           let href = closeHref
           if (kpi.key === 'binder_ready' || kpi.key === 'binder_untied') {
-            href = binder?.href ?? '/working-papers'
+            href = binder?.href ?? '/binder'
           } else if (
             kpi.key !== 'close_progress' &&
             kpi.key !== 'blocking_exceptions' &&

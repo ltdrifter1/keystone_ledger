@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom'
 import { api, type DrillOut, type Entity, type Report, type ReportFilters, type ReportLine, type Scenario } from '../api'
 import { WorkingPaperDrawer } from '../components/WorkingPaperDrawer'
 import { money } from '../lib/format'
-import { usePeriod } from '../period/PeriodContext'
+import { useEngagement } from '../period/PeriodContext'
 
 function periodEndIso(year: number, month: number) {
   const d = new Date(year, month, 0)
@@ -11,7 +11,15 @@ function periodEndIso(year: number, month: number) {
 }
 
 export function ReportsPage() {
-  const { year, month, setPeriod: setEngagementPeriod, label } = usePeriod()
+  const {
+    year,
+    month,
+    setPeriod: setEngagementPeriod,
+    label,
+    entityId: engagementEntityId,
+    setEntityId: setEngagementEntityId,
+    entityCode,
+  } = useEngagement()
   const [searchParams] = useSearchParams()
   const initialType = searchParams.get('type') || 'income_statement'
   const [reportType, setReportType] = useState(
@@ -22,7 +30,7 @@ export function ReportsPage() {
   const [reportPeriod, setReportPeriod] = useState(
     searchParams.get('type') === 'balance_sheet' ? 'monthly' : 'ytd',
   )
-  const [entityId, setEntityId] = useState('')
+  const [entityId, setEntityId] = useState(engagementEntityId || '')
   const [scenarioId, setScenarioId] = useState('1')
   const [compareScenarioId, setCompareScenarioId] = useState('')
   const [entities, setEntities] = useState<Entity[]>([])
@@ -40,11 +48,12 @@ export function ReportsPage() {
     Promise.all([api.entities(), api.scenarios()]).then(([e, s]) => {
       setEntities(e)
       setScenarios(s)
-      // Default to CAN so CAN/USA are not blended unless the user opts in
-      const can = e.find((x) => x.code === 'CAN')
-      if (can) setEntityId(String(can.id))
     })
   }, [])
+
+  useEffect(() => {
+    if (engagementEntityId) setEntityId(engagementEntityId)
+  }, [engagementEntityId])
 
   useEffect(() => {
     const t = searchParams.get('type')
@@ -139,9 +148,10 @@ export function ReportsPage() {
     <div className={`report-workspace ${drawerOpen ? 'drawer-open' : ''}`}>
       <div className="page-header">
         <div>
-          <h1>Reports</h1>
+          <h1>Statement</h1>
           <p>
-            Engagement period {label}. Click a line to drill — open the binder for the full WP document.
+            {entityCode ?? 'Entity'} · {label}. Click a line to drill — open the binder for the full
+            WP document.
           </p>
         </div>
         <div className="toolbar">
@@ -163,7 +173,14 @@ export function ReportsPage() {
           <option value="ytd">YTD</option>
           <option value="custom">Custom</option>
         </select>
-        <select className="select" value={entityId} onChange={(e) => setEntityId(e.target.value)}>
+        <select
+          className="select"
+          value={entityId}
+          onChange={(e) => {
+            setEntityId(e.target.value)
+            if (e.target.value) setEngagementEntityId(e.target.value)
+          }}
+        >
           <option value="">All entities (sum — not eliminated)</option>
           {entities.map((e) => (
             <option key={e.id} value={e.id}>

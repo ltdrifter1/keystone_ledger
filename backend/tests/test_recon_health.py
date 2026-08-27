@@ -27,7 +27,7 @@ def test_dashboard_includes_recon_health():
         assert row.balance is not None
         assert row.target_status in ("on_target", "above", "below", "no_budget")
         assert row.recon_freshness in ("current", "prior", "stale", "never")
-        assert row.href.startswith("/close?")
+        assert row.href.startswith("/work?")
         assert "bank=" in row.href
     finally:
         db.close()

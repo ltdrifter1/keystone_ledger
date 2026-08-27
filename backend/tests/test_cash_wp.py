@@ -32,7 +32,7 @@ def test_cash_schedule_uses_bank_recon_not_just_gl_drill():
         assert "can_review" in schedule
         row = schedule["banks"][0]
         assert "book_balance" in row
-        assert "href" in row and "/close?" in row["href"]
+        assert "href" in row and "/work?" in row["href"]
     finally:
         db.close()
 

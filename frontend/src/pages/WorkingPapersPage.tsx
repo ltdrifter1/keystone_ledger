@@ -13,7 +13,7 @@ const SECTION_LABEL: Record<string, string> = {
 }
 
 export function WorkingPapersPage() {
-  const { year, month, setPeriod, label } = usePeriod()
+  const { year, month, setPeriod, label, entityCode } = usePeriod()
   const [searchParams, setSearchParams] = useSearchParams()
   const [binder, setBinder] = useState<BinderOut | null>(null)
   const [doc, setDoc] = useState<BinderDocument | null>(null)
@@ -122,9 +122,10 @@ export function WorkingPapersPage() {
     <div>
       <div className="page-header">
         <div>
-          <h1>Working paper binder</h1>
+          <h1>Binder</h1>
           <p>
-            Engagement file for {label} — live leads, procedures, and P/R sign-off.
+            Working paper file for {entityCode ?? 'entity'} · {label} — live leads, procedures, and
+            P/R sign-off.
           </p>
         </div>
         {summary && (

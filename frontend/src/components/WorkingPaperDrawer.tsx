@@ -16,8 +16,8 @@ export function WorkingPaperDrawer({ open, loading, error, data, onClose }: Prop
   const { year, month } = usePeriod()
   const template = data?.template ?? null
   const binderHref = template
-    ? `/working-papers?year=${year}&month=${month}&key=${template.key}`
-    : `/working-papers?year=${year}&month=${month}`
+    ? `/binder?year=${year}&month=${month}&key=${template.key}`
+    : `/binder?year=${year}&month=${month}`
 
   return (
     <>

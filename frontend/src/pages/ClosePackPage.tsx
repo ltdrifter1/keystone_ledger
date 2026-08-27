@@ -23,12 +23,18 @@ import {
 import { AccountPicker } from '../components/AccountPicker'
 import { useToast } from '../hooks/useToast'
 import { money } from '../lib/format'
-import { usePeriod } from '../period/PeriodContext'
+import { useEngagement } from '../period/PeriodContext'
 
 type Mode = 'exceptions' | 'items'
 
 export function ClosePackPage() {
-  const { year: periodYear, month: periodMonth, setPeriod } = usePeriod()
+  const {
+    year: periodYear,
+    month: periodMonth,
+    setPeriod,
+    entityId,
+    entityCode,
+  } = useEngagement()
   const [searchParams, setSearchParams] = useSearchParams()
   const year = String(periodYear)
   const month = String(periodMonth)
@@ -87,37 +93,59 @@ export function ClosePackPage() {
       .then(([b, a]) => {
         setBanks(b)
         setAccounts(a)
-        if (!bankId && b[0]) {
-          setBankId(String(b[0].id))
-        }
       })
       .catch((e: Error) => setError(e.message))
   }, [])
 
+  // Keep selected bank inside the sticky engagement entity
+  useEffect(() => {
+    if (!entityId || !banks.length) return
+    const scoped = banks.filter((b) => String(b.entity_id) === entityId)
+    if (!scoped.length) return
+    const stillValid = scoped.some((b) => String(b.id) === bankId)
+    if (!stillValid) {
+      setBankId(String(scoped[0].id))
+      setActive(null)
+      setWorkspace(null)
+    }
+  }, [entityId, banks, bankId])
+
   useEffect(() => {
     loadOverview()
       .then((data) => {
+        const scoped = entityId
+          ? data.packs.filter((p) => String(p.entity_id ?? '') === entityId || p.entity_code === entityCode)
+          : data.packs
         const fromUrl = searchParams.get('bank')
         const targetId = fromUrl || bankId
         const urlMode = (searchParams.get('mode') as Mode) || mode
-        if (targetId) {
-          const pack = data.packs.find((p) => String(p.bank_account_id) === String(targetId))
+        const inScope = (id: string) => scoped.some((p) => String(p.bank_account_id) === String(id))
+        if (targetId && inScope(targetId)) {
+          const pack = scoped.find((p) => String(p.bank_account_id) === String(targetId))
           if (pack) void openPack(pack, { skipUrl: true, mode: urlMode })
         } else if (data.next_actions[0]) {
-          const action = data.next_actions[0]
-          const pack = data.packs.find((p) => p.bank_account_id === action.bank_account_id)
-          if (pack) {
-            const nextMode = (action.mode as Mode) || 'exceptions'
-            setMode(nextMode)
-            setKindFilter(action.filter || '')
-            setShowUnclearedOnly(action.filter === 'uncleared')
-            void openPack(pack, { skipUrl: true, mode: nextMode })
+          const action = data.next_actions.find((a) =>
+            scoped.some((p) => p.bank_account_id === a.bank_account_id),
+          )
+          if (action) {
+            const pack = scoped.find((p) => p.bank_account_id === action.bank_account_id)
+            if (pack) {
+              const nextMode = (action.mode as Mode) || 'exceptions'
+              setMode(nextMode)
+              setKindFilter(action.filter || '')
+              setShowUnclearedOnly(action.filter === 'uncleared')
+              void openPack(pack, { skipUrl: true, mode: nextMode })
+            }
+          } else if (scoped[0]) {
+            void openPack(scoped[0], { skipUrl: true, mode: urlMode })
           }
+        } else if (scoped[0]) {
+          void openPack(scoped[0], { skipUrl: true, mode: urlMode })
         }
       })
       .catch((e: Error) => setError(e.message))
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loadOverview])
+  }, [loadOverview, entityId])
 
   const loadWorkspace = async (reconId: number) => {
     const ws = await api.reconWorkspace(reconId)
@@ -272,19 +300,56 @@ export function ClosePackPage() {
     }
   }
 
+  const entityPacks = useMemo(() => {
+    if (!overview) return []
+    if (!entityId) return overview.packs
+    return overview.packs.filter((p) => String(p.entity_id ?? '') === entityId || p.entity_code === entityCode)
+  }, [overview, entityId, entityCode])
+
+  const entityActions = useMemo(() => {
+    if (!overview) return []
+    const ids = new Set(entityPacks.map((p) => p.bank_account_id))
+    return overview.next_actions.filter((a) => ids.has(a.bank_account_id))
+  }, [overview, entityPacks])
+
+  const entityBanks = useMemo(() => {
+    if (!entityId) return banks
+    return banks.filter((b) => String(b.entity_id) === entityId)
+  }, [banks, entityId])
+
+  const entityStats = useMemo(() => {
+    const locked = entityPacks.filter((p) => p.is_locked).length
+    const ready = entityPacks.filter((p) => p.can_lock).length
+    const inProgress = entityPacks.filter(
+      (p) => p.status !== 'not_started' && p.status !== 'locked' && !p.can_lock,
+    ).length
+    const canLockEntity =
+      entityPacks.length > 0 && entityPacks.every((p) => p.is_locked || p.can_lock) && ready > 0
+    return { locked, ready, inProgress, canLockEntity, total: entityPacks.length }
+  }, [entityPacks])
+
   const lockMonthAll = async () => {
     try {
-      const data = await api.lockMonth(Number(year), Number(month))
-      setOverview(data)
+      const ready = entityPacks.filter((p) => p.can_lock && p.reconciliation_id && !p.is_locked)
+      let locked = 0
+      const errors: string[] = []
+      for (const pack of ready) {
+        try {
+          await api.lockClosePack(pack.reconciliation_id!)
+          locked += 1
+        } catch (e) {
+          errors.push(`${pack.bank_account_name}: ${(e as Error).message}`)
+        }
+      }
+      const data = await loadOverview()
       if (active?.reconciliation_id) {
         const match = data.packs.find((p) => p.reconciliation_id === active.reconciliation_id)
         if (match) setActive(match)
       }
-      const failed = data.errors?.length ?? 0
-      if (failed) {
-        show(`Locked ${data.newly_locked.length} · ${failed} bank(s) not ready`)
+      if (errors.length) {
+        show(`Locked ${locked} · ${errors.length} bank(s) not ready`)
       } else {
-        show(`Locked ${data.newly_locked.length} bank(s)`)
+        show(`Locked ${locked} bank(s) for ${entityCode ?? 'entity'}`)
       }
     } catch (e) {
       setError((e as Error).message)
@@ -344,16 +409,19 @@ export function ClosePackPage() {
     <div>
       <div className="page-header">
         <div>
-          <h1>Close</h1>
-          <p>One desk for the month: next actions → exceptions → full register → lock.</p>
+          <h1>Work</h1>
+          <p>
+            Bank desk for {entityCode ?? 'entity'} · {year}-{String(month).padStart(2, '0')}: next
+            actions → exceptions → register → lock.
+          </p>
         </div>
         <div className="toolbar">
           <button
             className="btn primary"
-            disabled={!overview?.can_lock_month}
+            disabled={!entityStats.canLockEntity}
             onClick={() => void lockMonthAll()}
           >
-            <Lock size={14} /> Lock month
+            <Lock size={14} /> Lock entity banks
           </button>
         </div>
       </div>
@@ -361,31 +429,33 @@ export function ClosePackPage() {
       {error && <div className="error">{error}</div>}
 
       <div className="filters close-period-bar">
-        <span className="hint">Engagement period {year}-{String(month).padStart(2, '0')} (sidebar)</span>
+        <span className="hint">
+          Engagement {entityCode ?? '—'} · {year}-{String(month).padStart(2, '0')}
+        </span>
         {overview && (
           <span className="badge ok">
-            {overview.banks_locked}/{overview.banks_total} locked · {overview.banks_ready_to_lock} ready
-            {overview.banks_in_progress ? ` · ${overview.banks_in_progress} in progress` : ''}
+            {entityStats.locked}/{entityStats.total} locked · {entityStats.ready} ready
+            {entityStats.inProgress ? ` · ${entityStats.inProgress} in progress` : ''}
           </span>
         )}
-        {overview?.all_locked && (
+        {entityStats.total > 0 && entityStats.locked === entityStats.total && (
           <span className="badge ok">
-            <CheckCircle2 size={12} /> Month complete
+            <CheckCircle2 size={12} /> Entity banks locked
           </span>
         )}
-        <Link className="btn ghost" to={`/working-papers?year=${year}&month=${month}&key=cash`}>
+        <Link className="btn ghost" to={`/binder?year=${year}&month=${month}&key=cash`}>
           Cash WP C.1
         </Link>
       </div>
 
-      {overview && overview.next_actions.length > 0 && (
+      {entityActions.length > 0 && (
         <section className="panel close-next-panel">
           <div className="panel-header">
             <h2>Next actions</h2>
-            <span className="hint">{overview.next_actions.length} ranked</span>
+            <span className="hint">{entityActions.length} ranked</span>
           </div>
           <div className="close-next-list">
-            {overview.next_actions.slice(0, 6).map((action) => (
+            {entityActions.slice(0, 6).map((action) => (
               <button
                 key={action.key}
                 type="button"
@@ -404,7 +474,7 @@ export function ClosePackPage() {
       )}
 
       <div className="close-bank-strip">
-        {overview?.packs.map((p) => (
+        {entityPacks.map((p) => (
           <button
             key={p.bank_account_id}
             type="button"
@@ -444,7 +514,7 @@ export function ClosePackPage() {
                 if (pack) void openPack(pack)
               }}
             >
-              {banks.map((b) => (
+              {entityBanks.map((b) => (
                 <option key={b.id} value={b.id}>
                   {b.name} ({b.currency})
                 </option>

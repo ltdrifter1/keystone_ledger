@@ -211,11 +211,11 @@ def build_binder_index(db: Session, year: int, month: int) -> dict:
                 "reviewer": doc.reviewer if doc else None,
                 "reviewer_at": doc.reviewer_at.isoformat() if doc and doc.reviewer_at else None,
                 "close_status": close_status,
-                "href": f"/working-papers?year={year}&month={month}&key={tmpl.key}",
+                "href": f"/binder?year={year}&month={month}&key={tmpl.key}",
                 "report_href": (
-                    f"/reports?type={tmpl.statement}&year={year}&month={month}&line={line_code}"
+                    f"/statements?tab=statement&type={tmpl.statement}&year={year}&month={month}&line={line_code}"
                 ),
-                "close_href": f"/close?year={year}&month={month}" if tmpl.key == "cash" else None,
+                "close_href": f"/work?year={year}&month={month}" if tmpl.key == "cash" else None,
             }
         )
 

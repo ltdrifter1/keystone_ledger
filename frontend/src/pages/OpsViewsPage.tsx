@@ -3,14 +3,13 @@ import { Link } from 'react-router-dom'
 import {
   api,
   type BudgetView,
-  type Entity,
   type ExpensesView,
   type OpsKpi,
   type OpsLine,
   type SalesView,
 } from '../api'
 import { money } from '../lib/format'
-import { usePeriod } from '../period/PeriodContext'
+import { useEngagement } from '../period/PeriodContext'
 
 type Mode = 'sales' | 'expenses' | 'budget'
 
@@ -77,24 +76,14 @@ function LinesTable({
   )
 }
 
-export function OpsViewPage({ mode }: { mode: Mode }) {
-  const { year, month, label } = usePeriod()
-  const [entities, setEntities] = useState<Entity[]>([])
-  const [entityId, setEntityId] = useState('')
+export function OpsViewPage({ mode, embedded = false }: { mode: Mode; embedded?: boolean }) {
+  const { year, month, label, entityId, setEntityId, entities } = useEngagement()
   const [period, setPeriod] = useState('ytd')
   const [sales, setSales] = useState<SalesView | null>(null)
   const [expenses, setExpenses] = useState<ExpensesView | null>(null)
   const [budget, setBudget] = useState<BudgetView | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-
-  useEffect(() => {
-    api.entities().then((e) => {
-      setEntities(e)
-      const can = e.find((x) => x.code === 'CAN')
-      if (can) setEntityId(String(can.id))
-    })
-  }, [])
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -122,10 +111,10 @@ export function OpsViewPage({ mode }: { mode: Mode }) {
   const title = mode === 'sales' ? 'Sales' : mode === 'expenses' ? 'Expenses' : 'Budget overview'
   const blurb =
     mode === 'sales'
-      ? 'Quick read of revenue, channels, and sales vs budget for the engagement period.'
+      ? 'Revenue, channels, and sales vs budget for this engagement.'
       : mode === 'expenses'
-        ? 'COGS, operating spend, and expense vs budget — filtered by entity.'
-        : 'P&L actual vs budget plus cash targets by bank. CAN and USA stay separate.'
+        ? 'COGS and operating spend vs budget.'
+        : 'P&L actual vs budget plus cash targets by bank.'
 
   const kpis =
     mode === 'sales' ? sales?.kpis : mode === 'expenses' ? expenses?.kpis : budget?.pnl_kpis
@@ -139,32 +128,47 @@ export function OpsViewPage({ mode }: { mode: Mode }) {
 
   return (
     <div>
-      <div className="page-header">
-        <div>
-          <h1>{title}</h1>
-          <p>
-            {blurb} Period {label}.
-          </p>
+      {!embedded && (
+        <div className="page-header">
+          <div>
+            <h1>{title}</h1>
+            <p>
+              {blurb} Period {label}.
+            </p>
+          </div>
+          <div className="toolbar">
+            <select className="select" value={period} onChange={(e) => setPeriod(e.target.value)}>
+              <option value="monthly">Monthly</option>
+              <option value="ytd">YTD</option>
+              <option value="quarterly">Quarterly</option>
+            </select>
+            <select className="select" value={entityId} onChange={(e) => setEntityId(e.target.value)}>
+              {entities.map((e) => (
+                <option key={e.id} value={e.id}>
+                  {e.code} — {e.name}
+                </option>
+              ))}
+            </select>
+            <button className="btn" onClick={() => void load()} disabled={loading}>
+              {loading ? 'Loading…' : 'Refresh'}
+            </button>
+          </div>
         </div>
-        <div className="toolbar">
+      )}
+
+      {embedded && (
+        <div className="toolbar" style={{ marginBottom: '0.85rem' }}>
+          <span className="hint">{blurb}</span>
           <select className="select" value={period} onChange={(e) => setPeriod(e.target.value)}>
             <option value="monthly">Monthly</option>
             <option value="ytd">YTD</option>
             <option value="quarterly">Quarterly</option>
           </select>
-          <select className="select" value={entityId} onChange={(e) => setEntityId(e.target.value)}>
-            <option value="">All entities (sum)</option>
-            {entities.map((e) => (
-              <option key={e.id} value={e.id}>
-                {e.code} — {e.name}
-              </option>
-            ))}
-          </select>
           <button className="btn" onClick={() => void load()} disabled={loading}>
             {loading ? 'Loading…' : 'Refresh'}
           </button>
         </div>
-      </div>
+      )}
 
       {error && <div className="error">{error}</div>}
 
@@ -174,7 +178,7 @@ export function OpsViewPage({ mode }: { mode: Mode }) {
         <section className="panel" style={{ marginTop: '1rem' }}>
           <div className="panel-header">
             <h2>Top channels</h2>
-            <span className="hint">YTD / period department roll-up</span>
+            <span className="hint">Department roll-up</span>
           </div>
           <LinesTable lines={sales.top_channels} showCompare={false} />
         </section>
@@ -185,7 +189,7 @@ export function OpsViewPage({ mode }: { mode: Mode }) {
           <h2>{mode === 'budget' ? 'P&L vs budget' : `${title} detail`}</h2>
           <span className="hint">
             {showCompare ? 'Actual vs budget' : 'Actual'} ·{' '}
-            <Link to="/reports?type=income_statement">Open full report</Link>
+            <Link to="/statements?tab=statement">Open statement</Link>
           </span>
         </div>
         {lines && <LinesTable lines={lines} showCompare={showCompare} />}
@@ -195,11 +199,7 @@ export function OpsViewPage({ mode }: { mode: Mode }) {
         <section className="panel recon-health-panel" style={{ marginTop: '1rem' }}>
           <div className="panel-header">
             <h2>Cash vs target</h2>
-            <span className="hint">
-              {budget.budget_facts_ready
-                ? 'Bank book balance vs budget_balance'
-                : 'P&L budget facts not ready — cash targets still shown'}
-            </span>
+            <span className="hint">Bank book vs budget_balance</span>
           </div>
           <div className="table-wrap">
             <table className="data recon-health-table">
@@ -234,7 +234,7 @@ export function OpsViewPage({ mode }: { mode: Mode }) {
                     </td>
                     <td>
                       <Link className="btn ghost" to={row.href}>
-                        Close
+                        Work
                       </Link>
                     </td>
                   </tr>
@@ -248,14 +248,14 @@ export function OpsViewPage({ mode }: { mode: Mode }) {
   )
 }
 
-export function SalesPage() {
-  return <OpsViewPage mode="sales" />
+export function SalesPage({ embedded = false }: { embedded?: boolean }) {
+  return <OpsViewPage mode="sales" embedded={embedded} />
 }
 
-export function ExpensesPage() {
-  return <OpsViewPage mode="expenses" />
+export function ExpensesPage({ embedded = false }: { embedded?: boolean }) {
+  return <OpsViewPage mode="expenses" embedded={embedded} />
 }
 
-export function BudgetPage() {
-  return <OpsViewPage mode="budget" />
+export function BudgetPage({ embedded = false }: { embedded?: boolean }) {
+  return <OpsViewPage mode="budget" embedded={embedded} />
 }

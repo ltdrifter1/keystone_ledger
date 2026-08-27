@@ -72,7 +72,7 @@ def _line_dict(line) -> dict:
         "account_ids": list(line.account_ids or []),
         "account_type_filter": line.account_type_filter,
         "wp_ref": line.wp_ref,
-        "href": f"/reports?type=income_statement&line={line.line_code}",
+        "href": f"/statements?tab=statement&type=income_statement&line={line.line_code}",
     }
 
 
@@ -306,7 +306,7 @@ def _cash_budget_rows(db: Session, *, entity_id: int | None, year: int, month: i
                 "variance": float(variance) if variance is not None else None,
                 "variance_pct": float(variance_pct) if variance_pct is not None else None,
                 "status": status,
-                "href": f"/close?year={year}&month={month}&bank={bank.id}",
+                "href": f"/work?year={year}&month={month}&bank={bank.id}",
             }
         )
     return rows

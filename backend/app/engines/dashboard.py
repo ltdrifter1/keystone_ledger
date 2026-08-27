@@ -123,7 +123,7 @@ def build_recon_health(
                 days_since_reconciled=days_since,
                 recon_freshness=_recon_freshness(last_date, today),
                 current_period_status=current_status,
-                href=f"/close?year={today.year}&month={today.month}&bank={bank.id}",
+                href=f"/work?year={today.year}&month={today.month}&bank={bank.id}",
             )
         )
     # Off-target / stale first
@@ -320,7 +320,7 @@ def build_dashboard(db: Session, reporting_currency: str | None = None) -> Dashb
                 priority=action["priority"],
                 title=action["title"],
                 detail=action["detail"],
-                href=f"/close?{'&'.join(params)}",
+                href=f"/work?{'&'.join(params)}",
                 count=action.get("count"),
                 amount=action.get("amount"),
                 status="ok" if action["kind"] == "ready_to_lock" else "warning",
@@ -335,7 +335,7 @@ def build_dashboard(db: Session, reporting_currency: str | None = None) -> Dashb
                 priority=5,
                 title=f"Categorize {uncategorized} uncategorized",
                 detail="Open the close cockpit for this month’s bank exceptions",
-                href=f"/close?year={today.year}&month={today.month}&filter=uncategorized",
+                href=f"/work?year={today.year}&month={today.month}&filter=uncategorized",
                 count=int(uncategorized),
                 status="warning",
             ),
@@ -348,7 +348,7 @@ def build_dashboard(db: Session, reporting_currency: str | None = None) -> Dashb
                 priority=30,
                 title=f"Match {unmatched_ic} intercompany",
                 detail="Unmatched IC transfers still open",
-                href=f"/close?year={today.year}&month={today.month}&filter=intercompany",
+                href=f"/work?year={today.year}&month={today.month}&filter=intercompany",
                 count=int(unmatched_ic),
                 status="warning",
             )
@@ -365,7 +365,7 @@ def build_dashboard(db: Session, reporting_currency: str | None = None) -> Dashb
         reviewed=binder["summary"]["reviewed"],
         open=binder["summary"]["open"],
         untied=binder["summary"]["untied"],
-        href=f"/working-papers?year={binder['period_year']}&month={binder['period_month']}",
+        href=f"/binder?year={binder['period_year']}&month={binder['period_month']}",
     )
 
     # Job KPIs first — what to do next — then P&L context

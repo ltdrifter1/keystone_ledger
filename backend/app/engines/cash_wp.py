@@ -118,7 +118,7 @@ def build_cash_recon_schedule(db: Session, year: int, month: int) -> dict:
                 "is_locked": is_locked,
                 "is_tied": bank_tied,
                 "href": (
-                    f"/close?year={year}&month={month}&bank={bank_id}"
+                    f"/work?year={year}&month={month}&bank={bank_id}"
                     f"{'&mode=exceptions' if blocking else '&mode=items&filter=uncleared'}"
                 ),
             }
