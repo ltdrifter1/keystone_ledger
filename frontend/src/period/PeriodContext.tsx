@@ -7,27 +7,32 @@ import {
   useState,
   type ReactNode,
 } from 'react'
+import { api, type Entity } from '../api'
 
-const STORAGE_KEY = 'keystone.period'
+const PERIOD_KEY = 'keystone.period'
+const ENTITY_KEY = 'keystone.entity_id'
 
-export type PeriodState = {
+export type EngagementState = {
   year: number
   month: number
   label: string
+  entityId: string
+  entityCode: string | null
+  entities: Entity[]
   setPeriod: (year: number, month: number) => void
   setYear: (year: number) => void
   setMonth: (month: number) => void
+  setEntityId: (id: string) => void
 }
 
-const PeriodContext = createContext<PeriodState | null>(null)
+const EngagementContext = createContext<EngagementState | null>(null)
 
-function readStored(): { year: number; month: number } {
+function readPeriod(): { year: number; month: number } {
   const now = new Date()
   const fallback = { year: now.getFullYear(), month: now.getMonth() + 1 }
   try {
-    const raw = localStorage.getItem(STORAGE_KEY)
+    const raw = localStorage.getItem(PERIOD_KEY)
     if (!raw) {
-      // Migrate legacy close period if present
       const legacy = localStorage.getItem('keystone.close.period')
       if (legacy) {
         const parsed = JSON.parse(legacy) as { year?: string; month?: string }
@@ -39,49 +44,95 @@ function readStored(): { year: number; month: number } {
       return fallback
     }
     const parsed = JSON.parse(raw) as { year?: number; month?: number }
-    const year = Number(parsed.year) || fallback.year
-    const month = Number(parsed.month) || fallback.month
-    return { year, month: Math.min(12, Math.max(1, month)) }
+    return {
+      year: Number(parsed.year) || fallback.year,
+      month: Math.min(12, Math.max(1, Number(parsed.month) || fallback.month)),
+    }
   } catch {
     return fallback
   }
 }
 
-export function PeriodProvider({ children }: { children: ReactNode }) {
-  const initial = readStored()
+function readEntityId(): string {
+  try {
+    return localStorage.getItem(ENTITY_KEY) || ''
+  } catch {
+    return ''
+  }
+}
+
+export function EngagementProvider({ children }: { children: ReactNode }) {
+  const initial = readPeriod()
   const [year, setYearState] = useState(initial.year)
   const [month, setMonthState] = useState(initial.month)
+  const [entityId, setEntityIdState] = useState(readEntityId)
+  const [entities, setEntities] = useState<Entity[]>([])
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ year, month }))
-    localStorage.setItem('keystone.close.period', JSON.stringify({ year: String(year), month: String(month) }))
+    api.entities().then((list) => {
+      setEntities(list)
+      setEntityIdState((current) => {
+        if (current && list.some((e) => String(e.id) === current)) return current
+        const can = list.find((e) => e.code === 'CAN')
+        const next = can ? String(can.id) : list[0] ? String(list[0].id) : ''
+        return next
+      })
+    })
+  }, [])
+
+  useEffect(() => {
+    localStorage.setItem(PERIOD_KEY, JSON.stringify({ year, month }))
+    localStorage.setItem(
+      'keystone.close.period',
+      JSON.stringify({ year: String(year), month: String(month) }),
+    )
   }, [year, month])
+
+  useEffect(() => {
+    if (entityId) localStorage.setItem(ENTITY_KEY, entityId)
+  }, [entityId])
 
   const setPeriod = useCallback((y: number, m: number) => {
     setYearState(y)
     setMonthState(Math.min(12, Math.max(1, m)))
   }, [])
-
   const setYear = useCallback((y: number) => setYearState(y), [])
   const setMonth = useCallback((m: number) => setMonthState(Math.min(12, Math.max(1, m))), [])
+  const setEntityId = useCallback((id: string) => setEntityIdState(id), [])
 
-  const value = useMemo<PeriodState>(
+  const entityCode = useMemo(() => {
+    const match = entities.find((e) => String(e.id) === entityId)
+    return match?.code ?? null
+  }, [entities, entityId])
+
+  const value = useMemo<EngagementState>(
     () => ({
       year,
       month,
       label: `${year}-${String(month).padStart(2, '0')}`,
+      entityId,
+      entityCode,
+      entities,
       setPeriod,
       setYear,
       setMonth,
+      setEntityId,
     }),
-    [year, month, setPeriod, setYear, setMonth],
+    [year, month, entityId, entityCode, entities, setPeriod, setYear, setMonth, setEntityId],
   )
 
-  return <PeriodContext.Provider value={value}>{children}</PeriodContext.Provider>
+  return <EngagementContext.Provider value={value}>{children}</EngagementContext.Provider>
 }
 
+/** @deprecated use useEngagement — kept for existing pages */
 export function usePeriod() {
-  const ctx = useContext(PeriodContext)
-  if (!ctx) throw new Error('usePeriod must be used within PeriodProvider')
+  const ctx = useContext(EngagementContext)
+  if (!ctx) throw new Error('usePeriod must be used within EngagementProvider')
+  return ctx
+}
+
+export function useEngagement() {
+  const ctx = useContext(EngagementContext)
+  if (!ctx) throw new Error('useEngagement must be used within EngagementProvider')
   return ctx
 }

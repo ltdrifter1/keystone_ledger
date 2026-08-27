@@ -25,8 +25,8 @@ def test_binder_index_has_all_sections():
         assert cash["wp_ref"]
         assert cash["line_code"]
         assert "href" in cash
-        assert cash["report_href"].startswith("/reports?")
-        assert cash["close_href"] and cash["close_href"].startswith("/close?")
+        assert cash["report_href"].startswith("/statements?")
+        assert cash["close_href"] and cash["close_href"].startswith("/work?")
         assert cash["close_status"] in ("in_progress", "ready", "locked")
         assert binder["summary"].get("cash_close") is not None
         detail = get_binder_document(db, today.year, today.month, "cash")

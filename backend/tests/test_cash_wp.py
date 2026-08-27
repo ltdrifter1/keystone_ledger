@@ -32,7 +32,7 @@ def test_cash_schedule_uses_bank_recon_not_just_gl_drill():
         assert "can_review" in schedule
         row = schedule["banks"][0]
         assert "book_balance" in row
-        assert "href" in row and "/close?" in row["href"]
+        assert "href" in row and "/work?" in row["href"]
     finally:
         db.close()
 
@@ -71,7 +71,7 @@ def test_cash_wp_tied_after_all_banks_locked_clean():
     """Use an isolated future period so we don't lock the shared seed month."""
     db = SessionLocal()
     try:
-        year, month = 2098, 6
+        year, month = 2099, 6
         banks = list(db.scalars(select(BankAccount).where(BankAccount.is_active == True)).all())
         assert banks
         end = date(year, month, monthrange(year, month)[1])

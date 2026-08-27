@@ -74,6 +74,7 @@ class BinderOut(BaseModel):
     period_month: int
     period_label: str
     period_end: str
+    entity_id: Optional[int] = None
     documents: list[BinderDocumentIndex]
     summary: BinderSummary
 
@@ -107,6 +108,7 @@ class BinderDrill(BaseModel):
 class CashBankScheduleRow(BaseModel):
     bank_account_id: int
     bank_account_name: Optional[str] = None
+    entity_id: Optional[int] = None
     entity_code: Optional[str] = None
     currency: str
     reconciliation_id: Optional[int] = None
@@ -134,6 +136,7 @@ class CashReconSchedule(BaseModel):
     period_label: str
     period_end: str
     reporting_currency: str = "CAD"
+    entity_id: Optional[int] = None
     banks: list[CashBankScheduleRow] = Field(default_factory=list)
     gl_statement_amount: float = 0
     banks_book_reporting_total: float = 0
@@ -161,6 +164,7 @@ class BinderDocumentOut(BinderDocumentIndex):
     period_month: int
     period_label: str
     period_end: str
+    entity_id: Optional[int] = None
     objective: str
     tie_out: str
     procedures: list[str] = Field(default_factory=list)

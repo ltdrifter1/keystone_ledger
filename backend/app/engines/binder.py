@@ -30,8 +30,15 @@ def _primary_line_code(template) -> str:
     return template.line_codes[0] if template.line_codes else template.key.upper()
 
 
-def _report_filters(template, year: int, month: int) -> ReportFilter:
+def _report_filters(
+    template,
+    year: int,
+    month: int,
+    entity_id: int | None = None,
+) -> ReportFilter:
     end = period_end(year, month)
+    entity_ids = [entity_id] if entity_id is not None else None
+    consolidate = entity_id is None
     if template.statement == "balance_sheet":
         return ReportFilter(
             report_type="balance_sheet",
@@ -40,7 +47,8 @@ def _report_filters(template, year: int, month: int) -> ReportFilter:
             month=month,
             scenario_id=1,
             reporting_currency="CAD",
-            consolidate=True,
+            consolidate=consolidate,
+            entity_ids=entity_ids,
         )
     return ReportFilter(
         report_type="income_statement",
@@ -51,7 +59,8 @@ def _report_filters(template, year: int, month: int) -> ReportFilter:
         as_of_date=end,
         scenario_id=1,
         reporting_currency="CAD",
-        consolidate=True,
+        consolidate=consolidate,
+        entity_ids=entity_ids,
     )
 
 
@@ -89,9 +98,15 @@ def _derive_status(doc: WorkingPaperDocument | None, checked: list[int], procedu
     return "open"
 
 
-def _statement_amount_for_template(db: Session, template, year: int, month: int) -> tuple[str, Decimal, str | None]:
+def _statement_amount_for_template(
+    db: Session,
+    template,
+    year: int,
+    month: int,
+    entity_id: int | None = None,
+) -> tuple[str, Decimal, str | None]:
     """Return (line_code, amount, wp_ref from report)."""
-    filters = _report_filters(template, year, month)
+    filters = _report_filters(template, year, month, entity_id=entity_id)
     report = build_report(db, filters)
     by_code = {line.line_code: line for line in report.lines}
     for code in template.line_codes:
@@ -109,16 +124,19 @@ def _statement_amount_for_template(db: Session, template, year: int, month: int)
     return _primary_line_code(template), Decimal("0"), template.wp_ref
 
 
-def build_binder_index(db: Session, year: int, month: int) -> dict:
+def build_binder_index(db: Session, year: int, month: int, entity_id: int | None = None) -> dict:
     docs = _load_docs(db, year, month)
     close = month_close_overview(db, year, month)
-    cash_schedule = build_cash_recon_schedule(db, year, month)
+    packs = close["packs"]
+    if entity_id is not None:
+        packs = [p for p in packs if p.get("entity_id") == entity_id]
+    cash_schedule = build_cash_recon_schedule(db, year, month, entity_id=entity_id)
     cash_close = {
         "banks_total": cash_schedule["banks_total"],
         "banks_locked": cash_schedule["banks_locked"],
         "banks_ready_to_lock": cash_schedule["banks_ready_or_locked"],
         "all_locked": cash_schedule["all_locked"],
-        "blocking_total": sum(int(p.get("blocking_count") or 0) for p in close["packs"]),
+        "blocking_total": sum(int(p.get("blocking_count") or 0) for p in packs),
     }
 
     # Cache reports per statement type
@@ -127,7 +145,9 @@ def build_binder_index(db: Session, year: int, month: int) -> dict:
     def amount_for(template) -> tuple[str, Decimal, str | None]:
         stmt = template.statement
         if stmt not in report_cache:
-            report_cache[stmt] = build_report(db, _report_filters(template, year, month))
+            report_cache[stmt] = build_report(
+                db, _report_filters(template, year, month, entity_id=entity_id)
+            )
         report = report_cache[stmt]
         by_code = {line.line_code: line for line in report.lines}
         for code in template.line_codes:
@@ -137,6 +157,7 @@ def build_binder_index(db: Session, year: int, month: int) -> dict:
         return _primary_line_code(template), Decimal("0"), template.wp_ref
 
     documents = []
+    entity_q = f"&entity_id={entity_id}" if entity_id is not None else ""
 
     for tmpl in list_templates():
         doc = docs.get(tmpl.key)
@@ -178,7 +199,7 @@ def build_binder_index(db: Session, year: int, month: int) -> dict:
                     db,
                     DrillRequest(
                         line_code=line_code,
-                        filters=_report_filters(tmpl, year, month),
+                        filters=_report_filters(tmpl, year, month, entity_id=entity_id),
                     ),
                 )
                 is_tied = drill.is_tied
@@ -211,28 +232,32 @@ def build_binder_index(db: Session, year: int, month: int) -> dict:
                 "reviewer": doc.reviewer if doc else None,
                 "reviewer_at": doc.reviewer_at.isoformat() if doc and doc.reviewer_at else None,
                 "close_status": close_status,
-                "href": f"/working-papers?year={year}&month={month}&key={tmpl.key}",
+                "href": f"/binder?year={year}&month={month}&key={tmpl.key}{entity_q}",
                 "report_href": (
-                    f"/reports?type={tmpl.statement}&year={year}&month={month}&line={line_code}"
+                    f"/statements?tab=statement&type={tmpl.statement}&year={year}&month={month}"
+                    f"&line={line_code}{entity_q}"
                 ),
-                "close_href": f"/close?year={year}&month={month}" if tmpl.key == "cash" else None,
+                "close_href": (
+                    f"/work?year={year}&month={month}{entity_q}" if tmpl.key == "cash" else None
+                ),
             }
         )
 
-    summary = _fix_summary_counts(documents)
+    summary = _summary_counts(documents)
     summary["cash_close"] = cash_close
     return {
         "period_year": year,
         "period_month": month,
         "period_label": f"{year}-{month:02d}",
         "period_end": period_end(year, month).isoformat(),
+        "entity_id": entity_id,
         "documents": documents,
         "summary": summary,
         "cash_schedule": cash_schedule,
     }
 
 
-def _fix_summary_counts(documents: list[dict]) -> dict:
+def _summary_counts(documents: list[dict]) -> dict:
     total = len(documents)
     reviewed = sum(1 for d in documents if d["status"] == "reviewed")
     prepared = sum(1 for d in documents if d["status"] in ("prepared", "reviewed"))
@@ -247,16 +272,22 @@ def _fix_summary_counts(documents: list[dict]) -> dict:
     }
 
 
-def build_binder(db: Session, year: int, month: int) -> dict:
-    return build_binder_index(db, year, month)
+def build_binder(db: Session, year: int, month: int, entity_id: int | None = None) -> dict:
+    return build_binder_index(db, year, month, entity_id=entity_id)
 
 
-def get_binder_document(db: Session, year: int, month: int, key: str) -> dict:
+def get_binder_document(
+    db: Session,
+    year: int,
+    month: int,
+    key: str,
+    entity_id: int | None = None,
+) -> dict:
     tmpl = get_template(key)
     if not tmpl:
         raise ValueError(f"Unknown working paper '{key}'")
 
-    binder = build_binder(db, year, month)
+    binder = build_binder(db, year, month, entity_id=entity_id)
     index_row = next((d for d in binder["documents"] if d["key"] == key), None)
     if not index_row:
         raise ValueError(f"Working paper '{key}' not in binder")
@@ -268,7 +299,7 @@ def get_binder_document(db: Session, year: int, month: int, key: str) -> dict:
     if cash_schedule:
         checked = sorted(set(checked) | set(cash_schedule["auto_checked"]))
 
-    filters = _report_filters(tmpl, year, month)
+    filters = _report_filters(tmpl, year, month, entity_id=entity_id)
     line_code = index_row["line_code"]
     drill_payload = None
     # For cash, drill is secondary — bank schedule is the primary evidence
@@ -313,6 +344,7 @@ def get_binder_document(db: Session, year: int, month: int, key: str) -> dict:
         "period_month": month,
         "period_label": binder["period_label"],
         "period_end": binder["period_end"],
+        "entity_id": entity_id,
         "objective": tmpl.objective,
         "tie_out": tmpl.tie_out,
         "procedures": list(tmpl.procedures),
@@ -342,6 +374,7 @@ def upsert_binder_document(
     reviewer: str | None = None,
     status: str | None = None,
     actor: str = "controller",
+    entity_id: int | None = None,
 ) -> dict:
     tmpl = get_template(key)
     if not tmpl:
@@ -364,7 +397,9 @@ def upsert_binder_document(
         db.add(doc)
 
     now = datetime.utcnow()
-    cash_schedule = build_cash_recon_schedule(db, year, month) if key == "cash" else None
+    cash_schedule = (
+        build_cash_recon_schedule(db, year, month, entity_id=entity_id) if key == "cash" else None
+    )
 
     if checked is not None:
         # validate indices
@@ -398,7 +433,7 @@ def upsert_binder_document(
 
     if key == "cash" and intended_status in ("prepared", "reviewed"):
         cash_signoff_allowed(
-            cash_schedule or build_cash_recon_schedule(db, year, month),
+            cash_schedule or build_cash_recon_schedule(db, year, month, entity_id=entity_id),
             status=intended_status,
             preparer=next_preparer or (actor if intended_status == "prepared" else doc.preparer),
             reviewer=next_reviewer or (actor if intended_status == "reviewed" else doc.reviewer),
@@ -435,4 +470,4 @@ def upsert_binder_document(
     doc.updated_at = now
     doc.updated_by = actor
     db.flush()
-    return get_binder_document(db, year, month, key)
+    return get_binder_document(db, year, month, key, entity_id=entity_id)

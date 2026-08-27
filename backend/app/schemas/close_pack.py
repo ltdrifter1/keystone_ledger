@@ -31,6 +31,7 @@ class ClosePackStatus(BaseModel):
     bank_account_id: int
     bank_account_name: Optional[str] = None
     entity_code: Optional[str] = None
+    entity_id: Optional[int] = None
     currency: Optional[str] = None
     period_year: int
     period_month: int
