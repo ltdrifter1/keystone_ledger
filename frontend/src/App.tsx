@@ -3,6 +3,7 @@ import { Layout } from './components/Layout'
 import { BankAccountsPage } from './pages/BankAccountsPage'
 import { ClosePackPage } from './pages/ClosePackPage'
 import { DashboardPage } from './pages/DashboardPage'
+import { BudgetPage, ExpensesPage, SalesPage } from './pages/OpsViewsPage'
 import { ReportsPage } from './pages/ReportsPage'
 import { SettingsPage } from './pages/SettingsPage'
 import { TransactionsPage } from './pages/TransactionsPage'
@@ -13,6 +14,9 @@ export default function App() {
     <Routes>
       <Route element={<Layout />}>
         <Route index element={<DashboardPage />} />
+        <Route path="sales" element={<SalesPage />} />
+        <Route path="expenses" element={<ExpensesPage />} />
+        <Route path="budget" element={<BudgetPage />} />
         <Route path="close" element={<ClosePackPage />} />
         <Route path="working-papers" element={<WorkingPapersPage />} />
         <Route path="transactions" element={<TransactionsPage />} />

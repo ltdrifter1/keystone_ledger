@@ -7,12 +7,18 @@ import {
   Settings,
   Sparkles,
   ClipboardList,
+  TrendingUp,
+  Receipt,
+  Wallet,
 } from 'lucide-react'
 import { PeriodChip } from './PeriodChip'
 import { usePeriod } from '../period/PeriodContext'
 
 const links = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard },
+  { to: '/sales', label: 'Sales', icon: TrendingUp },
+  { to: '/expenses', label: 'Expenses', icon: Receipt },
+  { to: '/budget', label: 'Budget', icon: Wallet },
   { to: '/close', label: 'Close', icon: Sparkles },
   { to: '/working-papers', label: 'Working Papers', icon: ClipboardList },
   { to: '/transactions', label: 'Transactions', icon: ArrowLeftRight },
@@ -24,7 +30,14 @@ const links = [
 export function Layout() {
   const { year, month } = usePeriod()
   const periodLinks = links.map((link) => {
-    if (link.to === '/close' || link.to === '/working-papers' || link.to === '/reports') {
+    if (
+      link.to === '/close' ||
+      link.to === '/working-papers' ||
+      link.to === '/reports' ||
+      link.to === '/sales' ||
+      link.to === '/expenses' ||
+      link.to === '/budget'
+    ) {
       const sep = link.to.includes('?') ? '&' : '?'
       return { ...link, to: `${link.to}${sep}year=${year}&month=${month}` }
     }
@@ -46,7 +59,7 @@ export function Layout() {
             <NavLink
               key={label}
               to={to}
-              end={to === '/'}
+              end={label === 'Dashboard'}
               className={({ isActive }) => (isActive ? 'active' : '')}
             >
               <Icon size={16} />
@@ -55,7 +68,7 @@ export function Layout() {
           ))}
         </nav>
         <div className="nav-meta">
-          One engagement period for Close, Reports, and the WP binder.
+          One engagement period for Close, Reports, Sales, Expenses, Budget, and the WP binder.
           <br />
           <span className="kbd">/</span> search · <span className="kbd">R</span> rules ·{' '}
           <span className="kbd">S</span> split

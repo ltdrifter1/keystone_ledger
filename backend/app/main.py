@@ -8,6 +8,7 @@ from app.config import get_settings
 from app.database import SessionLocal, init_db
 from app.engines.working_papers import ensure_working_paper_foundation
 from app.services.ensure_budget import ensure_bank_budget_targets
+from app.services.ensure_pnl_budget import ensure_pnl_budget_targets
 from app.services.seed import seed_if_empty
 
 settings = get_settings()
@@ -31,6 +32,9 @@ async def lifespan(_: FastAPI):
         budgets = ensure_bank_budget_targets(db)
         if budgets:
             print(f"Set budget targets on {budgets} bank account(s)")
+        pnl_budgets = ensure_pnl_budget_targets(db)
+        if pnl_budgets:
+            print(f"Synthesized {pnl_budgets} monthly P&L budget target row(s)")
     finally:
         db.close()
     yield
