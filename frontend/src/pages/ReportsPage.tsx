@@ -4,6 +4,7 @@ import { api, type DrillOut, type Entity, type Report, type ReportFilters, type 
 import { WorkingPaperDrawer } from '../components/WorkingPaperDrawer'
 import { money } from '../lib/format'
 import { useEngagement } from '../period/PeriodContext'
+import { Download } from 'lucide-react'
 
 function periodEndIso(year: number, month: number) {
   const d = new Date(year, month, 0)
@@ -33,6 +34,9 @@ export function ReportsPage() {
   const [entityId, setEntityIdLocal] = useState(engagementEntityId || '')
   const [scenarioId, setScenarioId] = useState('1')
   const [compareScenarioId, setCompareScenarioId] = useState('')
+  const [comparePrior, setComparePrior] = useState(true)
+  const [compareYear, setCompareYear] = useState(true)
+  const [compareBudget, setCompareBudget] = useState(true)
   const [entities, setEntities] = useState<Entity[]>([])
   const [scenarios, setScenarios] = useState<Scenario[]>([])
   const [report, setReport] = useState<Report | null>(null)
@@ -86,8 +90,11 @@ export function ReportsPage() {
       compare_scenario_id: compareScenarioId ? Number(compareScenarioId) : null,
       as_of_date: asOf,
       date_to: asOf,
+      compare_prior_period: comparePrior,
+      compare_prior_year: compareYear,
+      compare_budget: compareBudget,
     }),
-    [reportType, reportPeriod, year, month, scenarioId, entityId, compareScenarioId, asOf],
+    [reportType, reportPeriod, year, month, scenarioId, entityId, compareScenarioId, asOf, comparePrior, compareYear, compareBudget],
   )
 
   const run = useCallback(async () => {
@@ -160,6 +167,13 @@ export function ReportsPage() {
           </p>
         </div>
         <div className="toolbar">
+          <button
+            className="btn"
+            onClick={() => void api.exportStatements(filters)}
+            disabled={loading}
+          >
+            <Download size={14} /> Export pack
+          </button>
           <button className="btn primary" onClick={() => void run()} disabled={loading}>
             {loading ? 'Running…' : 'Run report'}
           </button>
@@ -197,13 +211,25 @@ export function ReportsPage() {
           ))}
         </select>
         <select className="select" value={compareScenarioId} onChange={(e) => setCompareScenarioId(e.target.value)}>
-          <option value="">No comparison</option>
+          <option value="">No scenario compare</option>
           {scenarios.map((s) => (
             <option key={s.id} value={s.id}>
               vs {s.code}
             </option>
           ))}
         </select>
+        <label className="btn ghost">
+          <input type="checkbox" checked={comparePrior} onChange={(e) => setComparePrior(e.target.checked)} />
+          Prior period
+        </label>
+        <label className="btn ghost">
+          <input type="checkbox" checked={compareYear} onChange={(e) => setCompareYear(e.target.checked)} />
+          Prior year
+        </label>
+        <label className="btn ghost">
+          <input type="checkbox" checked={compareBudget} onChange={(e) => setCompareBudget(e.target.checked)} />
+          Budget
+        </label>
       </div>
 
       {error && <div className="error">{error}</div>}
@@ -224,6 +250,10 @@ export function ReportsPage() {
                 <th className="wp-col">Ref</th>
                 <th>Line</th>
                 <th className="num">Amount</th>
+                {comparePrior && <th className="num">Prior</th>}
+                {comparePrior && <th className="num">Var</th>}
+                {compareYear && <th className="num">PY</th>}
+                {compareBudget && <th className="num">Budget</th>}
                 {compareScenarioId && <th className="num">Compare</th>}
                 {compareScenarioId && <th className="num">Variance</th>}
               </tr>
@@ -249,6 +279,29 @@ export function ReportsPage() {
                       {line.drillable && <span className="drill-cue">↗</span>}
                     </td>
                     <td className="num">{money(line.amount)}</td>
+                    {comparePrior && (
+                      <td className="num">
+                        {line.prior_period_amount != null ? money(line.prior_period_amount) : '—'}
+                      </td>
+                    )}
+                    {comparePrior && (
+                      <td
+                        className={`num ${line.flux_flag ? 'flux-cell' : ''}`}
+                        title={line.flux_note ?? undefined}
+                      >
+                        {line.prior_period_variance != null ? money(line.prior_period_variance) : '—'}
+                      </td>
+                    )}
+                    {compareYear && (
+                      <td className="num">
+                        {line.prior_year_amount != null ? money(line.prior_year_amount) : '—'}
+                      </td>
+                    )}
+                    {compareBudget && (
+                      <td className="num">
+                        {line.budget_amount != null ? money(line.budget_amount) : '—'}
+                      </td>
+                    )}
                     {compareScenarioId && (
                       <td className="num">{line.compare_amount != null ? money(line.compare_amount) : '—'}</td>
                     )}
@@ -262,6 +315,46 @@ export function ReportsPage() {
           </table>
         </div>
       </section>
+
+      {report?.flux && report.flux.length > 0 && (
+        <section className="panel flux-panel">
+          <div className="panel-header">
+            <h2>Analytical review</h2>
+            <span className="hint">
+              Material movements vs {report.prior_period_label ?? 'prior'} · click a line above to
+              drill
+            </span>
+          </div>
+          <div className="table-wrap">
+            <table className="data">
+              <thead>
+                <tr>
+                  <th>Ref</th>
+                  <th>Line</th>
+                  <th>Flag</th>
+                  <th>Commentary</th>
+                  <th className="num">Var</th>
+                </tr>
+              </thead>
+              <tbody>
+                {report.flux.slice(0, 12).map((item) => (
+                  <tr key={`${item.line_code}-${item.flag}`}>
+                    <td className="wp-col">{item.wp_ref ?? ''}</td>
+                    <td>{item.line_label}</td>
+                    <td>
+                      <span className={`badge ${item.flag === 'material' ? 'open' : 'ok'}`}>
+                        {item.flag}
+                      </span>
+                    </td>
+                    <td className="hint">{item.note}</td>
+                    <td className="num">{item.variance != null ? money(item.variance) : '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
 
       <WorkingPaperDrawer
         open={drawerOpen}

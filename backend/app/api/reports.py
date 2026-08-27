@@ -1,10 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.engines.drilldown import drill_report_line
-from app.engines.reporting import build_report
-from app.schemas.reports import DrillOut, DrillRequest, ReportFilter, ReportOut
+from app.engines.reporting import build_analytics_pack, build_report, export_statement_pack_xlsx
+from app.schemas.reports import AnalyticsPack, DrillOut, DrillRequest, ReportFilter, ReportOut
 
 router = APIRouter(prefix="/reports")
 
@@ -12,6 +13,24 @@ router = APIRouter(prefix="/reports")
 @router.post("/run", response_model=ReportOut)
 def run_report(filters: ReportFilter, db: Session = Depends(get_db)) -> ReportOut:
     return build_report(db, filters)
+
+
+@router.post("/analytics", response_model=AnalyticsPack)
+def analytics(filters: ReportFilter, db: Session = Depends(get_db)) -> AnalyticsPack:
+    return build_analytics_pack(db, filters)
+
+
+@router.post("/export")
+def export_pack(filters: ReportFilter, db: Session = Depends(get_db)) -> StreamingResponse:
+    payload = export_statement_pack_xlsx(db, filters)
+    year = filters.year or 0
+    month = filters.month or 0
+    filename = f"keystone-statements-{year}-{month:02d}.xlsx"
+    return StreamingResponse(
+        iter([payload]),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.post("/drill", response_model=DrillOut)

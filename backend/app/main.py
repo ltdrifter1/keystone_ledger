@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api import api_router
 from app.config import get_settings
 from app.database import SessionLocal, init_db
+from app.engines.bank_feeds import ensure_feed_connections
 from app.engines.working_papers import ensure_working_paper_foundation
 from app.services.ensure_budget import ensure_bank_budget_targets
 from app.services.ensure_pnl_budget import ensure_pnl_budget_targets
@@ -35,6 +36,9 @@ async def lifespan(_: FastAPI):
         pnl_budgets = ensure_pnl_budget_targets(db)
         if pnl_budgets:
             print(f"Synthesized {pnl_budgets} monthly P&L budget target row(s)")
+        feeds = ensure_feed_connections(db, auto_connect=True)
+        if feeds:
+            print(f"Connected live bank feeds on {feeds} account(s)")
     finally:
         db.close()
     yield

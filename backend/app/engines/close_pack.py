@@ -317,7 +317,9 @@ def build_close_pack_status(db: Session, recon: Reconciliation) -> dict:
     uncategorized_count = sum(1 for e in exceptions if e["kind"] == "uncategorized")
     duplicate_count = sum(1 for e in exceptions if e["kind"] == "duplicate")
 
-    return {
+    from app.engines.bank_feeds import feed_snapshot
+
+    status = {
         "reconciliation_id": recon.id,
         "bank_account_id": recon.bank_account_id,
         "bank_account_name": bank.name if bank else None,
@@ -345,6 +347,8 @@ def build_close_pack_status(db: Session, recon: Reconciliation) -> dict:
         "locked_at": recon.locked_at.isoformat() if recon.locked_at else None,
         "locked_by": recon.locked_by,
     }
+    status.update(feed_snapshot(db, recon.bank_account_id))
+    return status
 
 
 def run_statement_close_pack(
@@ -428,6 +432,41 @@ def run_statement_close_pack(
         "import_result": import_result.model_dump() if import_result else None,
         "unmatched_intercompany_global": unmatched_intercompany_count(db),
     }
+
+
+def run_close_pack_from_feed(
+    db: Session,
+    *,
+    bank_account_id: int,
+    period_year: int,
+    period_month: int,
+    actor: str = "controller",
+) -> dict:
+    """Sync the live bank feed, then run the close pack with the feed statement balance."""
+    from app.engines.bank_feeds import statement_balance_as_of, sync_feed
+    from app.engines.reconciliation import period_end as recon_period_end
+
+    sync = sync_feed(
+        db,
+        bank_account_id,
+        actor=actor,
+        period_year=period_year,
+        period_month=period_month,
+    )
+    as_of = recon_period_end(period_year, period_month)
+    ending = statement_balance_as_of(db, bank_account_id, as_of)
+    result = run_statement_close_pack(
+        db,
+        bank_account_id=bank_account_id,
+        period_year=period_year,
+        period_month=period_month,
+        statement_ending_balance=ending,
+        actor=actor,
+    )
+    result["feed_imported"] = sync["imported"]
+    result["feed_auto_categorized"] = sync["auto_categorized"]
+    result["statement_ending_balance"] = float(ending)
+    return result
 
 
 def resolve_exception_categorize(
@@ -544,13 +583,38 @@ def build_next_actions(packs: list[dict]) -> list[dict]:
             continue
 
         if pack.get("status") == "not_started":
+            pending = int(pack.get("feed_pending") or 0)
+            connected = pack.get("feed_status") == "connected"
+            if connected:
+                detail = (
+                    f"Sync live feed and run the pack"
+                    + (f" — {pending} new item(s) waiting" if pending else " — ending balance from the bank")
+                )
+                actions.append(
+                    {
+                        "key": f"feed-{bank_id}",
+                        "kind": "feed_sync",
+                        "priority": 8,
+                        "title": f"Close from feed · {bank_name}",
+                        "detail": detail,
+                        "bank_account_id": bank_id,
+                        "bank_account_name": bank_name,
+                        "reconciliation_id": None,
+                        "mode": "exceptions",
+                        "filter": None,
+                        "count": pending or None,
+                        "amount": None,
+                    }
+                )
             actions.append(
                 {
                     "key": f"start-{bank_id}",
                     "kind": "not_started",
                     "priority": 40,
                     "title": f"Start close · {bank_name}",
-                    "detail": "Enter statement ending balance and run the pack",
+                    "detail": "Enter statement ending balance and run the pack"
+                    if not connected
+                    else "Manual override — type a statement balance",
                     "bank_account_id": bank_id,
                     "bank_account_name": bank_name,
                     "reconciliation_id": None,
@@ -563,6 +627,24 @@ def build_next_actions(packs: list[dict]) -> list[dict]:
             continue
 
         uncat = int(pack.get("uncategorized_count") or 0)
+        pending = int(pack.get("feed_pending") or 0)
+        if pending and pack.get("feed_status") == "connected":
+            actions.append(
+                {
+                    "key": f"feed-pull-{bank_id}",
+                    "kind": "feed_sync",
+                    "priority": 5,
+                    "title": f"Pull {pending} live item(s) · {bank_name}",
+                    "detail": "New bank feed activity since last sync",
+                    "bank_account_id": bank_id,
+                    "bank_account_name": bank_name,
+                    "reconciliation_id": recon_id,
+                    "mode": "exceptions",
+                    "filter": None,
+                    "count": pending,
+                    "amount": None,
+                }
+            )
         if uncat:
             actions.append(
                 {
@@ -683,6 +765,9 @@ def month_close_overview(db: Session, year: int, month: int) -> dict:
                 "is_locked": False,
                 "exceptions": [],
             }
+        from app.engines.bank_feeds import feed_snapshot
+
+        status.update(feed_snapshot(db, bank.id))
         packs.append(status)
 
     ready = [p for p in packs if p["can_lock"]]

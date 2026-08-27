@@ -33,6 +33,7 @@ export default function App() {
         <Route path="close" element={<LegacyRedirect to="/work" />} />
         <Route path="working-papers" element={<LegacyRedirect to="/binder" />} />
         <Route path="reports" element={<LegacyRedirect to="/statements?tab=statement" />} />
+        <Route path="analytics" element={<LegacyRedirect to="/statements?tab=analytics" />} />
         <Route path="sales" element={<LegacyRedirect to="/statements?tab=sales" />} />
         <Route path="expenses" element={<LegacyRedirect to="/statements?tab=expenses" />} />
         <Route path="budget" element={<LegacyRedirect to="/statements?tab=budget" />} />

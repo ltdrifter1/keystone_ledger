@@ -9,11 +9,13 @@ import {
   ListChecks,
   Rows3,
   ArrowRight,
+  Radio,
 } from 'lucide-react'
 import {
   api,
   type Account,
   type BankAccount,
+  type BankFeed,
   type CloseException,
   type CloseNextAction,
   type ClosePackStatus,
@@ -39,6 +41,7 @@ export function ClosePackPage() {
   const year = String(periodYear)
   const month = String(periodMonth)
   const [banks, setBanks] = useState<BankAccount[]>([])
+  const [feeds, setFeeds] = useState<BankFeed[]>([])
   const [accounts, setAccounts] = useState<Account[]>([])
   const [overview, setOverview] = useState<MonthCloseOverview | null>(null)
   const [active, setActive] = useState<ClosePackStatus | null>(null)
@@ -98,10 +101,11 @@ export function ClosePackPage() {
   }, [year, month])
 
   useEffect(() => {
-    Promise.all([api.bankAccounts(), api.accounts()])
-      .then(([b, a]) => {
+    Promise.all([api.bankAccounts(), api.accounts(), api.bankFeeds()])
+      .then(([b, a, f]) => {
         setBanks(b)
         setAccounts(a)
+        setFeeds(f)
       })
       .catch((e: Error) => setError(e.message))
   }, [])
@@ -226,12 +230,44 @@ export function ClosePackPage() {
       setActive(result)
       setFile(null)
       await loadOverview()
+      api.bankFeeds().then(setFeeds).catch(() => undefined)
       if (result.can_lock) {
         show(`Ready to lock — ${result.auto_cleared ?? 0} auto-cleared`)
       } else {
         show(
           `Pack ran — ${result.blocking_count} blocking exception${result.blocking_count === 1 ? '' : 's'}`,
         )
+      }
+      syncUrl({ bank: String(result.bank_account_id), mode: 'exceptions' })
+    } catch (e) {
+      setError((e as Error).message)
+    } finally {
+      setRunning(false)
+    }
+  }
+
+  const runFromFeed = async () => {
+    if (!bankId) {
+      show('Choose a bank')
+      return
+    }
+    setRunning(true)
+    setError(null)
+    try {
+      const result = await api.runCloseFromFeed({
+        bankAccountId: Number(bankId),
+        periodYear: Number(year),
+        periodMonth: Number(month),
+      })
+      setActive(result)
+      setEnding(result.statement_ending_balance != null ? String(result.statement_ending_balance) : '')
+      await loadOverview()
+      api.bankFeeds().then(setFeeds).catch(() => undefined)
+      const pulled = result.feed_imported ?? 0
+      if (result.can_lock) {
+        show(`Closed from feed — ${pulled} new item(s), ready to lock`)
+      } else {
+        show(`Feed synced — ${pulled} new · ${result.blocking_count} blocking`)
       }
       syncUrl({ bank: String(result.bank_account_id), mode: 'exceptions' })
     } catch (e) {
@@ -387,6 +423,33 @@ export function ClosePackPage() {
       filter: action.filter || '',
     })
     if (pack) void openPack(pack, { skipUrl: true, mode: nextMode })
+    if (action.kind === 'feed_sync') {
+      setBankId(String(action.bank_account_id))
+      void (async () => {
+        setBankId(String(action.bank_account_id))
+        // run after bankId state — pass id directly
+        setRunning(true)
+        setError(null)
+        try {
+          const result = await api.runCloseFromFeed({
+            bankAccountId: action.bank_account_id,
+            periodYear: Number(year),
+            periodMonth: Number(month),
+          })
+          setActive(result)
+          setEnding(
+            result.statement_ending_balance != null ? String(result.statement_ending_balance) : '',
+          )
+          await loadOverview()
+          api.bankFeeds().then(setFeeds).catch(() => undefined)
+          show(`Closed from feed — ${result.feed_imported ?? 0} new item(s)`)
+        } catch (e) {
+          setError((e as Error).message)
+        } finally {
+          setRunning(false)
+        }
+      })()
+    }
   }
 
   const exceptionsByKind = useMemo(() => {
@@ -511,7 +574,11 @@ export function ClosePackPage() {
                 : p.can_lock
                   ? 'ready'
                   : p.status === 'not_started'
-                    ? 'not started'
+                    ? (p.feed_status === 'connected'
+                      ? p.feed_pending
+                        ? `feed · ${p.feed_pending} new`
+                        : 'feed live'
+                      : 'not started')
                     : `${p.blocking_count} block`}
             </span>
             <span className="close-bank-diff">
@@ -542,35 +609,75 @@ export function ClosePackPage() {
                 </option>
               ))}
             </select>
-            <input
-              className="input"
-              type="number"
-              step="0.01"
-              placeholder="Statement ending balance"
-              value={ending}
-              onChange={(e) => setEnding(e.target.value)}
-              disabled={active?.is_locked}
-            />
-            <label className="btn">
-              <Upload size={14} />
-              {file ? file.name : 'Statement CSV/Excel (optional)'}
-              <input
-                type="file"
-                accept=".csv,.xlsx,.xls"
-                hidden
-                disabled={active?.is_locked}
-                onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-              />
-            </label>
-            <button
-              className="btn primary"
-              disabled={running || active?.is_locked}
-              onClick={() => void runPack()}
-            >
-              {running ? 'Running…' : active?.reconciliation_id ? 'Update recon pack' : 'Run recon pack'}
-            </button>
+            {(() => {
+              const feed = feeds.find((f) => String(f.bank_account_id) === bankId)
+              const connected = feed?.status === 'connected'
+              return (
+                <>
+                  {connected && (
+                    <div className="feed-run-banner">
+                      <Radio size={16} />
+                      <div>
+                        <strong>Live feed connected</strong>
+                        <div className="hint">
+                          {feed.pending_count
+                            ? `${feed.pending_count} new item(s) waiting`
+                            : 'Caught up'}
+                          {feed.last_balance != null
+                            ? ` · balance ${money(feed.last_balance, feed.currency)}`
+                            : ''}
+                          . Ending balance is taken from the bank at period end.
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  <button
+                    className="btn primary"
+                    disabled={running || active?.is_locked || !connected}
+                    onClick={() => void runFromFeed()}
+                  >
+                    {running
+                      ? 'Syncing…'
+                      : connected
+                        ? 'Sync & close from feed'
+                        : 'Connect a feed on Banks'}
+                  </button>
+                  <details className="manual-close">
+                    <summary>Manual statement (CSV / typed balance)</summary>
+                    <input
+                      className="input"
+                      type="number"
+                      step="0.01"
+                      placeholder="Statement ending balance"
+                      value={ending}
+                      onChange={(e) => setEnding(e.target.value)}
+                      disabled={active?.is_locked}
+                    />
+                    <label className="btn">
+                      <Upload size={14} />
+                      {file ? file.name : 'Statement CSV/Excel (optional)'}
+                      <input
+                        type="file"
+                        accept=".csv,.xlsx,.xls"
+                        hidden
+                        disabled={active?.is_locked}
+                        onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+                      />
+                    </label>
+                    <button
+                      className="btn"
+                      disabled={running || active?.is_locked}
+                      onClick={() => void runPack()}
+                    >
+                      {running ? 'Running…' : active?.reconciliation_id ? 'Update recon pack' : 'Run recon pack'}
+                    </button>
+                  </details>
+                </>
+              )
+            })()}
             <p className="hint">
-              Imports (optional), applies rules, opens the recon, auto-clears categorized in-period items.
+              Feed close: sync → apply rules → open recon with the bank’s period-end balance →
+              auto-clear categorized items.
             </p>
           </div>
         </section>
@@ -687,7 +794,7 @@ export function ClosePackPage() {
 
               {!active.reconciliation_id && (
                 <p className="hint" style={{ padding: '0 1rem 1rem' }}>
-                  Not started. Enter the statement ending balance and run the recon pack.
+                  Not started. Sync the live feed (or enter a statement balance) and run the pack.
                 </p>
               )}
 

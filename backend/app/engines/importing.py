@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import io
 import uuid
+from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
-from typing import Any
+from typing import Any, Iterable
 
 import pandas as pd
 from sqlalchemy import select
@@ -102,14 +103,30 @@ def ensure_date_dimension(db: Session, d: date) -> int:
     return key
 
 
-def import_bank_file(
+@dataclass
+class BankImportRow:
+    txn_date: date
+    description: str
+    amount: Decimal
+    currency: str | None = None
+    external_id: str | None = None
+    reference: str | None = None
+    counterparty: str | None = None
+    label: str | None = None
+
+
+def import_bank_rows(
     db: Session,
     *,
-    file_bytes: bytes,
-    filename: str,
     bank_account_id: int,
+    rows: Iterable[BankImportRow],
     actor: str = "controller",
+    source_type: str = "bank_import",
+    skip_duplicates: bool = False,
+    batch_id: str | None = None,
+    filename: str | None = None,
 ) -> ImportResult:
+    """Ingest already-parsed bank rows (file import or live feed)."""
     bank = db.get(BankAccount, bank_account_id)
     if not bank:
         raise ValueError("Bank account not found")
@@ -118,48 +135,45 @@ def import_bank_file(
     if not actual_scenario:
         raise ValueError("ACTUAL scenario missing — run seed")
 
-    name_lower = filename.lower()
-    if name_lower.endswith(".csv"):
-        df = pd.read_csv(io.BytesIO(file_bytes))
-    elif name_lower.endswith((".xlsx", ".xls")):
-        df = pd.read_excel(io.BytesIO(file_bytes))
-    else:
-        raise ValueError("Unsupported file type. Use CSV or Excel.")
-
-    df = _normalize_columns(df)
-    batch_id = uuid.uuid4().hex[:12]
+    batch_id = batch_id or uuid.uuid4().hex[:12]
     imported = 0
     duplicates = 0
     skipped = 0
     errors: list[str] = []
     new_txns: list[Transaction] = []
 
-    existing_fps = set(db.scalars(select(Transaction.fingerprint).where(Transaction.fingerprint.is_not(None))))
+    existing_fps = set(
+        db.scalars(select(Transaction.fingerprint).where(Transaction.fingerprint.is_not(None)))
+    )
+    existing_ext = set(
+        db.scalars(
+            select(Transaction.external_id).where(
+                Transaction.bank_account_id == bank_account_id,
+                Transaction.external_id.is_not(None),
+            )
+        )
+    )
 
-    for idx, row in df.iterrows():
+    for idx, row in enumerate(rows, start=1):
+        label = row.label or f"Row {idx}"
         try:
-            row_dict = row.to_dict()
-            if "date" not in row_dict or "description" not in row_dict:
-                raise ValueError("Missing required date/description columns")
-            txn_date = _parse_date(row_dict["date"])
             try:
-                assert_bank_period_open(db, bank_account_id, txn_date)
+                assert_bank_period_open(db, bank_account_id, row.txn_date)
             except PeriodLockedError as exc:
                 raise ValueError(str(exc)) from exc
-            description = str(row_dict.get("description") or "").strip()
+            description = (row.description or "").strip()
             if not description:
                 raise ValueError("Empty description")
-            amount = _parse_amount(row_dict)
-            currency = str(row_dict.get("currency") or bank.currency).strip().upper()
-            external_id = row_dict.get("external_id")
-            external_id = str(external_id) if pd.notna(external_id) and external_id is not None else None
-            reference = row_dict.get("reference")
-            reference = str(reference) if pd.notna(reference) and reference is not None else None
-            counterparty = row_dict.get("counterparty")
-            counterparty = str(counterparty) if pd.notna(counterparty) and counterparty is not None else None
+            amount = Decimal(row.amount)
+            currency = (row.currency or bank.currency).strip().upper()
+            external_id = row.external_id.strip() if row.external_id else None
+            if external_id and external_id in existing_ext:
+                duplicates += 1
+                if skip_duplicates:
+                    continue
 
             fp = transaction_fingerprint(
-                txn_date=txn_date,
+                txn_date=row.txn_date,
                 amount=amount,
                 description=description,
                 currency=currency,
@@ -169,6 +183,8 @@ def import_bank_file(
             is_dup = fp in existing_fps
             if is_dup:
                 duplicates += 1
+                if skip_duplicates:
+                    continue
 
             entity = db.get(DimEntity, bank.entity_id)
             target_ccy = entity.functional_currency if entity else currency
@@ -177,17 +193,17 @@ def import_bank_file(
                 amount=amount,
                 from_currency=currency,
                 to_currency=target_ccy,
-                as_of=txn_date,
+                as_of=row.txn_date,
             )
-            date_key = ensure_date_dimension(db, txn_date)
+            date_key = ensure_date_dimension(db, row.txn_date)
 
             txn = Transaction(
                 external_id=external_id,
                 fingerprint=fp,
-                txn_date=txn_date,
+                txn_date=row.txn_date,
                 description=description,
-                reference=reference,
-                counterparty=counterparty,
+                reference=row.reference,
+                counterparty=row.counterparty,
                 amount=amount,
                 currency=currency,
                 amount_reporting=amount_reporting,
@@ -196,7 +212,7 @@ def import_bank_file(
                 bank_account_id=bank.id,
                 scenario_id=actual_scenario.id,
                 date_key=date_key,
-                source_type="bank_import",
+                source_type=source_type,
                 status="uncategorized",
                 is_duplicate=is_dup,
                 import_batch_id=batch_id,
@@ -206,10 +222,12 @@ def import_bank_file(
             db.add(txn)
             new_txns.append(txn)
             existing_fps.add(fp)
+            if external_id:
+                existing_ext.add(external_id)
             imported += 1
         except (ValueError, InvalidOperation, KeyError) as exc:
             skipped += 1
-            errors.append(f"Row {idx}: {exc}")
+            errors.append(f"{label}: {exc}")
 
     db.flush()
     auto_categorized = apply_rules_batch(db, [t for t in new_txns if not t.is_duplicate], actor=actor)
@@ -227,6 +245,7 @@ def import_bank_file(
             "duplicates": duplicates,
             "auto_categorized": auto_categorized,
             "filename": filename,
+            "source_type": source_type,
         },
     )
 
@@ -238,3 +257,71 @@ def import_bank_file(
         skipped=skipped,
         errors=errors[:50],
     )
+
+
+def import_bank_file(
+    db: Session,
+    *,
+    file_bytes: bytes,
+    filename: str,
+    bank_account_id: int,
+    actor: str = "controller",
+) -> ImportResult:
+    bank = db.get(BankAccount, bank_account_id)
+    if not bank:
+        raise ValueError("Bank account not found")
+
+    name_lower = filename.lower()
+    if name_lower.endswith(".csv"):
+        df = pd.read_csv(io.BytesIO(file_bytes))
+    elif name_lower.endswith((".xlsx", ".xls")):
+        df = pd.read_excel(io.BytesIO(file_bytes))
+    else:
+        raise ValueError("Unsupported file type. Use CSV or Excel.")
+
+    df = _normalize_columns(df)
+    parsed: list[BankImportRow] = []
+    parse_errors: list[str] = []
+    for idx, row in df.iterrows():
+        row_dict = row.to_dict()
+        try:
+            if "date" not in row_dict or "description" not in row_dict:
+                raise ValueError("Missing required date/description columns")
+            description = str(row_dict.get("description") or "").strip()
+            if not description:
+                raise ValueError("Empty description")
+            external_id = row_dict.get("external_id")
+            external_id = str(external_id) if pd.notna(external_id) and external_id is not None else None
+            reference = row_dict.get("reference")
+            reference = str(reference) if pd.notna(reference) and reference is not None else None
+            counterparty = row_dict.get("counterparty")
+            counterparty = str(counterparty) if pd.notna(counterparty) and counterparty is not None else None
+            currency = row_dict.get("currency")
+            currency = str(currency).strip().upper() if pd.notna(currency) and currency is not None else None
+            parsed.append(
+                BankImportRow(
+                    txn_date=_parse_date(row_dict["date"]),
+                    description=description,
+                    amount=_parse_amount(row_dict),
+                    currency=currency,
+                    external_id=external_id,
+                    reference=reference,
+                    counterparty=counterparty,
+                    label=f"Row {idx}",
+                )
+            )
+        except (ValueError, InvalidOperation, KeyError) as exc:
+            parse_errors.append(f"Row {idx}: {exc}")
+
+    result = import_bank_rows(
+        db,
+        bank_account_id=bank_account_id,
+        rows=parsed,
+        actor=actor,
+        source_type="bank_import",
+        filename=filename,
+    )
+    if parse_errors:
+        result.skipped += len(parse_errors)
+        result.errors = (parse_errors + result.errors)[:50]
+    return result

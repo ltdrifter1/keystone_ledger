@@ -59,6 +59,13 @@ class ClosePackStatus(BaseModel):
     rules_applied: Optional[int] = None
     import_result: Optional[dict[str, Any]] = None
     unmatched_intercompany_global: Optional[int] = None
+    feed_status: Optional[str] = None
+    feed_pending: int = 0
+    feed_last_synced_at: Optional[str] = None
+    feed_balance: Optional[float] = None
+    feed_stale: Optional[bool] = None
+    feed_imported: Optional[int] = None
+    feed_auto_categorized: Optional[int] = None
 
 
 class CloseNextAction(BaseModel):

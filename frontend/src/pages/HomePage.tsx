@@ -54,7 +54,7 @@ export function HomePage() {
           <h1>
             {entityCode ?? 'Entity'} · {label}
           </h1>
-          <p>Work the queue top-down. Then binder sign-off, then statements.</p>
+          <p>Work the queue top-down. Live feeds first, then binder sign-off, then statements.</p>
         </div>
         <div className="toolbar">
           <Link className="btn" to={home.work_href}>
@@ -80,6 +80,10 @@ export function HomePage() {
         <span className="home-status-sep" />
         <span>
           Uncategorized <strong>{p.uncategorized}</strong>
+        </span>
+        <span className="home-status-sep" />
+        <span>
+          Feeds <strong>{p.feeds_pending ?? 0}</strong> pending
         </span>
         <span className="home-status-sep" />
         <span>

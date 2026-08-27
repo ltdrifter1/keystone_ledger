@@ -172,6 +172,11 @@ export type ReportFilters = {
   as_of_date?: string | null
   date_from?: string | null
   date_to?: string | null
+  compare_prior_period?: boolean
+  compare_prior_year?: boolean
+  compare_budget?: boolean
+  materiality_amount?: number | null
+  materiality_pct?: number | null
 }
 
 export type ReportLine = {
@@ -181,6 +186,17 @@ export type ReportLine = {
   amount: string
   compare_amount?: string
   variance?: string
+  prior_period_amount?: string | null
+  prior_period_variance?: string | null
+  prior_period_variance_pct?: string | null
+  prior_year_amount?: string | null
+  prior_year_variance?: string | null
+  prior_year_variance_pct?: string | null
+  budget_amount?: string | null
+  budget_variance?: string | null
+  budget_variance_pct?: string | null
+  flux_flag?: string | null
+  flux_note?: string | null
   indent_level: number
   is_bold: boolean
   is_total: boolean
@@ -191,6 +207,20 @@ export type ReportLine = {
   wp_ref?: string | null
 }
 
+export type FluxItem = {
+  report_type: string
+  line_code: string
+  line_label: string
+  wp_ref?: string | null
+  amount: string
+  prior_amount?: string | null
+  variance?: string | null
+  variance_pct?: string | null
+  flag: string
+  note: string
+  drillable: boolean
+}
+
 export type Report = {
   report_type: string
   title: string
@@ -198,6 +228,33 @@ export type Report = {
   generated_at: string
   filters?: ReportFilters
   lines: ReportLine[]
+  period_label?: string | null
+  prior_period_label?: string | null
+  prior_year_label?: string | null
+  budget_label?: string | null
+  columns?: string[]
+  flux?: FluxItem[]
+}
+
+export type AnalyticsKpi = {
+  key: string
+  label: string
+  amount: number
+  prior_amount?: number | null
+  variance?: number | null
+  variance_pct?: number | null
+  tone?: string | null
+}
+
+export type AnalyticsPack = {
+  period_label: string
+  currency: string
+  materiality_amount: string
+  materiality_pct: string
+  kpis: AnalyticsKpi[]
+  flux: FluxItem[]
+  statements: Report[]
+  generated_at: string
 }
 
 export type WorkingPaperTemplate = {
@@ -325,6 +382,13 @@ export type ClosePackStatus = {
   created_reconciliation?: boolean | null
   auto_cleared?: number | null
   rules_applied?: number | null
+  feed_status?: string | null
+  feed_pending?: number
+  feed_last_synced_at?: string | null
+  feed_balance?: number | null
+  feed_stale?: boolean | null
+  feed_imported?: number | null
+  feed_auto_categorized?: number | null
 }
 
 export type CloseNextAction = {
@@ -478,6 +542,54 @@ export type BudgetView = {
   report_filters: Record<string, unknown>
 }
 
+export type BankFeedPending = {
+  txn_date: string
+  description: string
+  amount: string
+  currency: string
+  external_id?: string | null
+  reference?: string | null
+  counterparty?: string | null
+}
+
+export type BankFeed = {
+  id: number
+  bank_account_id: number
+  bank_account_name: string
+  entity_id: number
+  entity_code?: string | null
+  account_number: string
+  currency: string
+  institution?: string | null
+  provider: string
+  status: string
+  last_synced_at?: string | null
+  last_balance?: string | null
+  last_balance_as_of?: string | null
+  error_message?: string | null
+  connected_at?: string | null
+  pending_count: number
+  is_stale: boolean
+  href: string
+  pending: BankFeedPending[]
+}
+
+export type FeedSync = {
+  bank_account_id: number
+  status: string
+  imported: number
+  duplicates_flagged: number
+  auto_categorized: number
+  skipped: number
+  pending_remaining: number
+  last_balance: string
+  last_balance_as_of: string
+  last_synced_at: string
+  statement_ending_balance?: string | null
+  errors: string[]
+  feed: BankFeed
+}
+
 export type EngagementHome = {
   period_year: number
   period_month: number
@@ -494,6 +606,8 @@ export type EngagementHome = {
     binder_reviewed: number
     binder_untied: number
     cash_ready: boolean
+    feeds_connected?: number
+    feeds_pending?: number
   }
   queue: Array<{
     key: string
@@ -619,6 +733,45 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     }),
+  analytics: (body: Record<string, unknown>) =>
+    request<AnalyticsPack>('/reports/analytics', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }),
+  exportStatements: async (body: Record<string, unknown>) => {
+    const res = await fetch(`${BASE}/reports/export`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+    if (!res.ok) {
+      const text = await res.text()
+      throw new Error(text || 'Export failed')
+    }
+    const blob = await res.blob()
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `keystone-statements.xlsx`
+    a.click()
+    URL.revokeObjectURL(url)
+  },
+  bankFeeds: (entityId?: number) => {
+    const qs = entityId ? `?entity_id=${entityId}` : ''
+    return request<BankFeed[]>(`/bank-feeds${qs}`)
+  },
+  connectFeed: (bankAccountId: number) =>
+    request<BankFeed>(`/bank-feeds/${bankAccountId}/connect`, { method: 'POST' }),
+  disconnectFeed: (bankAccountId: number) =>
+    request<BankFeed>(`/bank-feeds/${bankAccountId}/disconnect`, { method: 'POST' }),
+  syncFeed: (bankAccountId: number, year?: number, month?: number) => {
+    const qs = new URLSearchParams()
+    if (year) qs.set('year', String(year))
+    if (month) qs.set('month', String(month))
+    const suffix = qs.toString() ? `?${qs}` : ''
+    return request<FeedSync>(`/bank-feeds/${bankAccountId}/sync${suffix}`, { method: 'POST' })
+  },
   drillReport: (body: {
     line_code: string
     account_id?: number | null
@@ -679,6 +832,13 @@ export const api = {
     fd.append('statement_ending_balance', String(args.statementEndingBalance))
     if (args.file) fd.append('file', args.file)
     return request<ClosePackStatus>('/close-pack/run', { method: 'POST', body: fd })
+  },
+  runCloseFromFeed: async (args: { bankAccountId: number; periodYear: number; periodMonth: number }) => {
+    const fd = new FormData()
+    fd.append('bank_account_id', String(args.bankAccountId))
+    fd.append('period_year', String(args.periodYear))
+    fd.append('period_month', String(args.periodMonth))
+    return request<ClosePackStatus>('/close-pack/run-from-feed', { method: 'POST', body: fd })
   },
   getClosePack: (reconId: number) => request<ClosePackStatus>(`/close-pack/${reconId}`),
   refreshClosePack: (reconId: number) =>

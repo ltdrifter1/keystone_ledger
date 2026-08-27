@@ -2,10 +2,12 @@ import { useEffect, useMemo } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { ReportsPage } from './ReportsPage'
 import { BudgetPage, ExpensesPage, SalesPage } from './OpsViewsPage'
+import { AnalyticsPage } from './AnalyticsPage'
 import { useEngagement } from '../period/PeriodContext'
 
 const TABS = [
   { id: 'statement', label: 'Statement' },
+  { id: 'analytics', label: 'Analytics' },
   { id: 'sales', label: 'Sales' },
   { id: 'expenses', label: 'Expenses' },
   { id: 'budget', label: 'Budget' },
@@ -34,6 +36,7 @@ export function StatementsPage() {
   }
 
   const body = useMemo(() => {
+    if (tab === 'analytics') return <AnalyticsPage embedded />
     if (tab === 'sales') return <SalesPage embedded />
     if (tab === 'expenses') return <ExpensesPage embedded />
     if (tab === 'budget') return <BudgetPage embedded />

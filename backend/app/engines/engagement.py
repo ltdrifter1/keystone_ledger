@@ -5,6 +5,7 @@ from __future__ import annotations
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.engines.bank_feeds import list_feeds
 from app.engines.binder import build_binder
 from app.engines.cash_wp import build_cash_recon_schedule
 from app.engines.close_pack import month_close_overview
@@ -48,6 +49,46 @@ def build_engagement_home(
 
     queue: list[dict] = []
     step = 1
+
+    feeds = list_feeds(db, entity_id=entity_id, include_pending=False)
+    feeds_connected = sum(1 for f in feeds if f["status"] == "connected")
+    feeds_pending = sum(int(f["pending_count"] or 0) for f in feeds if f["status"] == "connected")
+    disconnected = [f for f in feeds if f["status"] != "connected"]
+    pending_feeds = [f for f in feeds if f["status"] == "connected" and int(f["pending_count"] or 0) > 0]
+
+    if disconnected:
+        first = disconnected[0]
+        queue.append(
+            {
+                "key": "connect-feeds",
+                "step": step,
+                "phase": "work",
+                "priority": 4,
+                "title": f"Connect {len(disconnected)} bank feed(s)",
+                "detail": "Live feeds replace CSV uploads and typed statement balances.",
+                "href": "/bank-accounts",
+                "count": len(disconnected),
+                "status": "open",
+            }
+        )
+        step += 1
+
+    if pending_feeds:
+        first = pending_feeds[0]
+        queue.append(
+            {
+                "key": "sync-feeds",
+                "step": step,
+                "phase": "work",
+                "priority": 5,
+                "title": f"Pull {feeds_pending} live bank item(s)",
+                "detail": "New activity on the feed — sync before recon so the statement balance is complete.",
+                "href": f"/work?year={year}&month={month}&bank={first['bank_account_id']}",
+                "count": feeds_pending,
+                "status": "open",
+            }
+        )
+        step += 1
 
     if uncategorized:
         queue.append(
@@ -253,6 +294,8 @@ def build_engagement_home(
             "binder_reviewed": reviewed,
             "binder_untied": binder["summary"]["untied"],
             "cash_ready": bool(cash.get("can_prepare")),
+            "feeds_connected": feeds_connected,
+            "feeds_pending": feeds_pending,
         },
         "queue": queue,
         "work_href": f"/work?year={year}&month={month}",

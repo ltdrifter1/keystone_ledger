@@ -5,6 +5,7 @@ from app.api import (
     dashboard,
     dimensions,
     engagement,
+    feeds,
     imports,
     reconciliations,
     reports,
@@ -19,6 +20,7 @@ api_router.include_router(dashboard.router, tags=["dashboard"])
 api_router.include_router(engagement.router, tags=["engagement"])
 api_router.include_router(views.router, tags=["views"])
 api_router.include_router(close_pack.router, tags=["close-pack"])
+api_router.include_router(feeds.router, tags=["bank-feeds"])
 api_router.include_router(transactions.router, tags=["transactions"])
 api_router.include_router(imports.router, tags=["imports"])
 api_router.include_router(reconciliations.router, tags=["reconciliations"])
