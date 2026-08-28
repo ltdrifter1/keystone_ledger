@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { ArrowRight, CheckCircle2, ClipboardList, FileBarChart2, Lock, Sparkles } from 'lucide-react'
+import { ArrowRight, CheckCircle2, FileBarChart2, BookOpen } from 'lucide-react'
 import { api, type EngagementHome } from '../api'
 import { useEngagement } from '../period/PeriodContext'
 
@@ -10,7 +10,6 @@ export function HomePage() {
   const [home, setHome] = useState<EngagementHome | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
-  const [locking, setLocking] = useState(false)
 
   useEffect(() => {
     const y = searchParams.get('year')
@@ -39,45 +38,13 @@ export function HomePage() {
     void load()
   }, [load])
 
-  const lockMonth = async () => {
-    if (!entityId) return
-    setLocking(true)
-    setError(null)
-    try {
-      await api.lockEntityMonth(Number(entityId), year, month)
-      await load()
-    } catch (e) {
-      setError((e as Error).message)
-    } finally {
-      setLocking(false)
-    }
-  }
-
-  if (!entityId) return <p className="hint">Loading engagement context…</p>
+  if (!entityId) return <p className="hint">Loading entity…</p>
   if (error) return <div className="error">{error}</div>
-  if (loading || !home) return <p className="hint">Loading engagement…</p>
+  if (loading || !home) return <p className="hint">Loading pack…</p>
 
   const p = home.progress
-  const next = home.queue[0]
-  const done = next?.status === 'ok'
-  const openCount = home.queue.filter((q) => q.status !== 'ok').length
-  const journalLed = Boolean(home.journal_led || p.journal_led)
-  const monthLocked = Boolean(home.month_lock?.is_locked || p.month_locked)
-
-  const actionFor = (item: (typeof home.queue)[0]) => {
-    if (item.key === 'lock-month') {
-      return (
-        <button className="btn primary" type="button" disabled={locking || monthLocked} onClick={() => void lockMonth()}>
-          <Lock size={14} /> {locking ? 'Locking…' : monthLocked ? 'Month locked' : 'Lock month'}
-        </button>
-      )
-    }
-    return (
-      <Link className="btn ghost" to={item.href}>
-        Open <ArrowRight size={14} />
-      </Link>
-    )
-  }
+  const printable = Boolean(p.can_print)
+  const plugs = home.queue.filter((q) => q.status !== 'ok')
 
   return (
     <div className="home-engagement">
@@ -87,136 +54,82 @@ export function HomePage() {
             {entityName ?? entityCode ?? 'Entity'} · {label}
           </h1>
           <p>
-            Monthly rec for {entityName ?? entityCode ?? 'this company'} — Work the queue top-down. This version is
-            month-end close, not a daily inbox. WBC CAN and WBC USA stay separate.
+            Exceptions that stop this pack from printing. CAN and USA stay separate — this is not a
+            consolidation.
           </p>
         </div>
         <div className="toolbar">
-          <Link className="btn" to={home.work_href}>
-            <Sparkles size={14} /> Work
-          </Link>
-          <Link className="btn" to={home.binder_href}>
-            <ClipboardList size={14} /> Binder
-          </Link>
-          <Link className="btn" to={home.statements_href}>
+          <Link className="btn primary" to={home.statements_href}>
             <FileBarChart2 size={14} /> Statements
           </Link>
-          <button className="btn primary" type="button" disabled={locking || monthLocked} onClick={() => void lockMonth()}>
-            <Lock size={14} /> {monthLocked ? 'Month locked' : 'Lock month'}
-          </button>
+          <Link className="btn" to={home.work_href}>
+            <BookOpen size={14} /> Books
+          </Link>
         </div>
       </div>
 
-      <div className="home-status-bar" aria-label="Monthly rec progress">
-        {journalLed ? (
-          <>
-            <span>
-              Journals <strong>{p.journals ?? 0}</strong>
-            </span>
-            <span className="home-status-sep" />
-            <span>
-              Unmatched IC <strong>{p.unmatched_ic ?? 0}</strong>
-            </span>
-            <span className="home-status-sep" />
-            <span>
-              Month <strong>{monthLocked ? 'locked' : 'open'}</strong>
-            </span>
-          </>
-        ) : (
-          <>
-            <span>
-              Banks <strong>
-                {p.banks_locked}/{p.banks_total}
-              </strong>{' '}
-              locked
-            </span>
-            <span className="home-status-sep" />
-            <span>
-              Blocking <strong>{p.blocking_total}</strong>
-            </span>
-            <span className="home-status-sep" />
-            <span>
-              Uncategorized <strong>{p.uncategorized}</strong>
-            </span>
-            <span className="home-status-sep" />
-            <span>
-              Unmatched IC <strong>{p.unmatched_ic ?? 0}</strong>
-            </span>
-            <span className="home-status-sep" />
-            <span>
-              Month <strong>{monthLocked ? 'locked' : 'open'}</strong>
-            </span>
-          </>
-        )}
-        <span className="home-status-sep" />
+      <div className="home-status-bar" aria-label="Pack status">
         <span>
-          Binder <strong>
-            {p.binder_reviewed}/{p.binder_total}
-          </strong>
+          Pack <strong>{printable ? 'printable' : 'blocked'}</strong>
         </span>
         <span className="home-status-sep" />
         <span>
-          Cash WP <strong>{p.cash_ready ? (journalLed ? 'N/A' : 'ready') : 'open'}</strong>
+          Balance sheet <strong>{p.statements_balanced ? 'in balance' : 'out of balance'}</strong>
         </span>
         <span className="home-status-sep" />
         <span>
-          Pack <strong>{p.can_print ? 'printable' : 'blocked'}</strong>
+          Uncategorized <strong>{p.uncategorized}</strong>
         </span>
       </div>
 
-      {next && (
-        <section className={`panel home-primary ${done ? 'ok' : 'warn'}`}>
-          <div>
-            <div className="hint">
-              Next up · step {next.step}
-              {!done && openCount > 1 ? ` · ${openCount} open` : ''}
-            </div>
-            <h2>{next.title}</h2>
-            <p className="hint">{next.detail}</p>
-          </div>
-          {next.key === 'lock-month' ? (
-            <button className="btn primary" type="button" disabled={locking || monthLocked} onClick={() => void lockMonth()}>
-              <Lock size={14} /> {locking ? 'Locking…' : 'Lock month'}
-            </button>
+      <section className={`panel home-primary ${printable ? 'ok' : 'warn'}`}>
+        <div>
+          <div className="hint">{printable ? 'Ready' : `${plugs.length} exception${plugs.length === 1 ? '' : 's'}`}</div>
+          <h2>{printable ? 'Pack is printable' : 'Statement will not print'}</h2>
+          <p className="hint">
+            {printable
+              ? 'P&L, balance sheet, equity, and trial balance are ready for this entity.'
+              : 'Fix the items below. Do not issue this pack until they are gone.'}
+          </p>
+        </div>
+        <Link className="btn primary" to={home.statements_href}>
+          {printable ? (
+            <>
+              <CheckCircle2 size={14} /> Open statements
+            </>
           ) : (
-            <Link className="btn primary" to={next.href}>
-              {done ? (
-                <>
-                  <CheckCircle2 size={14} /> Review statements
-                </>
-              ) : (
-                <>
-                  Continue <ArrowRight size={14} />
-                </>
-              )}
-            </Link>
+            <>
+              Open statements <ArrowRight size={14} />
+            </>
           )}
-        </section>
-      )}
+        </Link>
+      </section>
 
       <section className="panel">
         <div className="panel-header">
-          <h2>Monthly rec queue</h2>
-          <span className="hint">Ordered: Work → Binder → Lock month → Statements</span>
+          <h2>Exceptions</h2>
+          <span className="hint">Why the pack will not print</span>
         </div>
-        <ol className="home-queue">
-          {home.queue.map((item) => (
-            <li key={item.key} className={`home-queue-item ${item.status}`}>
-              <div className="home-queue-step">{item.step}</div>
-              <div className="home-queue-body">
-                <div className="home-queue-meta">
-                  <span className={`badge ${item.phase === 'work' ? 'open' : item.phase === 'binder' ? '' : 'ok'}`}>
-                    {item.phase}
-                  </span>
-                  {item.count != null && <span className="hint">{item.count}</span>}
+        {printable && plugs.length === 0 ? (
+          <p className="hint" style={{ padding: '0.85rem 1rem' }}>
+            None. Print or export from Statements.
+          </p>
+        ) : (
+          <ol className="home-queue">
+            {plugs.map((item) => (
+              <li key={item.key} className={`home-queue-item ${item.status}`}>
+                <div className="home-queue-step">{item.step}</div>
+                <div className="home-queue-body">
+                  <strong>{item.title}</strong>
+                  <span className="hint">{item.detail}</span>
                 </div>
-                <strong>{item.title}</strong>
-                <span className="hint">{item.detail}</span>
-              </div>
-              {actionFor(item)}
-            </li>
-          ))}
-        </ol>
+                <Link className="btn ghost" to={item.href}>
+                  Open <ArrowRight size={14} />
+                </Link>
+              </li>
+            ))}
+          </ol>
+        )}
       </section>
     </div>
   )

@@ -21,28 +21,35 @@ function LegacyRedirect({ to }: { to: string }) {
   return <Navigate to={qs ? `${path}?${qs}` : path} replace />
 }
 
+function IndexRedirect() {
+  const loc = useLocation()
+  return <Navigate to={`/statements${loc.search}`} replace />
+}
+
 export default function App() {
   return (
     <Routes>
       <Route element={<Layout />}>
-        <Route index element={<HomePage />} />
+        <Route index element={<IndexRedirect />} />
+        <Route path="exceptions" element={<HomePage />} />
         <Route path="work" element={<ClosePackPage />} />
         <Route path="binder" element={<WorkingPapersPage />} />
         <Route path="statements" element={<StatementsPage />} />
         {/* Legacy redirects — keep bookmarks + deep links alive */}
         <Route path="close" element={<LegacyRedirect to="/work" />} />
         <Route path="working-papers" element={<LegacyRedirect to="/binder" />} />
-        <Route path="reports" element={<LegacyRedirect to="/statements?tab=statement" />} />
-        <Route path="analytics" element={<LegacyRedirect to="/statements?tab=analytics" />} />
-        <Route path="sales" element={<LegacyRedirect to="/statements?tab=sales" />} />
-        <Route path="expenses" element={<LegacyRedirect to="/statements?tab=expenses" />} />
-        <Route path="budget" element={<LegacyRedirect to="/statements?tab=budget" />} />
+        <Route path="reports" element={<LegacyRedirect to="/statements?tab=pnl" />} />
+        <Route path="analytics" element={<LegacyRedirect to="/statements?tab=pnl" />} />
+        <Route path="sales" element={<LegacyRedirect to="/statements?tab=pnl" />} />
+        <Route path="expenses" element={<LegacyRedirect to="/statements?tab=pnl" />} />
+        <Route path="budget" element={<LegacyRedirect to="/statements?tab=pnl" />} />
         <Route path="reconciliation" element={<LegacyRedirect to="/work" />} />
-        <Route path="dashboard" element={<Navigate to="/" replace />} />
+        <Route path="dashboard" element={<LegacyRedirect to="/statements" />} />
+        <Route path="home" element={<LegacyRedirect to="/exceptions" />} />
         <Route path="transactions" element={<TransactionsPage />} />
         <Route path="bank-accounts" element={<BankAccountsPage />} />
         <Route path="settings" element={<SettingsPage />} />
-        <Route path="*" element={<Navigate to="/" replace />} />
+        <Route path="*" element={<Navigate to="/statements" replace />} />
       </Route>
     </Routes>
   )

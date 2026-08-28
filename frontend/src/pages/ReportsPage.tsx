@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { api, type DrillOut, type Entity, type Report, type ReportFilters, type ReportLine, type Scenario, type StatementDiagnostics } from '../api'
+import { api, type DrillOut, type Entity, type Report, type ReportFilters, type ReportLine, type StatementDiagnostics } from '../api'
 import { WorkingPaperDrawer } from '../components/WorkingPaperDrawer'
 import { money } from '../lib/format'
 import { useEngagement } from '../period/PeriodContext'
@@ -39,7 +39,6 @@ export function ReportsPage({ forcedType }: { forcedType?: 'income_statement' | 
   const [showRefs, setShowRefs] = useState(false)
   const [showZeros, setShowZeros] = useState(false)
   const [entities, setEntities] = useState<Entity[]>([])
-  const [scenarios, setScenarios] = useState<Scenario[]>([])
   const [report, setReport] = useState<Report | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
@@ -51,10 +50,7 @@ export function ReportsPage({ forcedType }: { forcedType?: 'income_statement' | 
   const [diagnostics, setDiagnostics] = useState<StatementDiagnostics | null>(null)
 
   useEffect(() => {
-    Promise.all([api.entities(), api.scenarios()]).then(([e, s]) => {
-      setEntities(e)
-      setScenarios(s)
-    })
+    api.entities().then(setEntities)
   }, [])
 
   useEffect(() => {
@@ -196,7 +192,7 @@ export function ReportsPage({ forcedType }: { forcedType?: 'income_statement' | 
         <div>
           <p className="statement-kicker">{entityCode ?? 'Entity'}</p>
           <h1 className="statement-cover">{cover}</h1>
-          <p className="print-hide">Click a line to drill into the binder working paper.</p>
+          <p className="print-hide">Click a line to see the source transactions.</p>
           {report?.pack_disclaimer && <p className="pack-disclaimer">{report.pack_disclaimer}</p>}
           {report?.accounting_basis && <p className="hint print-only">{report.accounting_basis}</p>}
         </div>
@@ -233,36 +229,9 @@ export function ReportsPage({ forcedType }: { forcedType?: 'income_statement' | 
             </option>
           ))}
         </select>
-        <select className="select" value={scenarioId} onChange={(e) => setScenarioId(e.target.value)}>
-          {scenarios.map((s) => (
-            <option key={s.id} value={s.id}>
-              {s.code}
-            </option>
-          ))}
-        </select>
-        <select className="select" value={compareScenarioId} onChange={(e) => setCompareScenarioId(e.target.value)}>
-          <option value="">No scenario compare</option>
-          {scenarios.map((s) => (
-            <option key={s.id} value={s.id}>
-              vs {s.code}
-            </option>
-          ))}
-        </select>
-        <label className="btn ghost">
-          <input type="checkbox" checked={comparePrior} onChange={(e) => setComparePrior(e.target.checked)} />
-          Prior period
-        </label>
         <label className="btn ghost">
           <input type="checkbox" checked={compareYear} onChange={(e) => setCompareYear(e.target.checked)} />
           Prior year
-        </label>
-        <label className="btn ghost">
-          <input type="checkbox" checked={compareBudget} onChange={(e) => setCompareBudget(e.target.checked)} />
-          Budget (illustrative)
-        </label>
-        <label className="btn ghost">
-          <input type="checkbox" checked={showRefs} onChange={(e) => setShowRefs(e.target.checked)} />
-          WP refs
         </label>
         <label className="btn ghost">
           <input type="checkbox" checked={showZeros} onChange={(e) => setShowZeros(e.target.checked)} />
@@ -334,7 +303,7 @@ export function ReportsPage({ forcedType }: { forcedType?: 'income_statement' | 
                     key={line.line_code}
                     className={`${line.is_total ? 'total' : ''} ${line.drillable ? 'drillable' : ''} ${active ? 'wp-active' : ''}`}
                     onClick={() => void openDrill(line)}
-                    title={line.drillable ? 'Open working paper' : undefined}
+                    title={line.drillable ? 'Open source transactions' : undefined}
                   >
                     {showRefs && <td className="wp-col">{line.drillable ? line.wp_ref ?? '·' : ''}</td>}
                     <td
@@ -389,8 +358,7 @@ export function ReportsPage({ forcedType }: { forcedType?: 'income_statement' | 
           <div className="panel-header">
             <h2>Analytical review</h2>
             <span className="hint">
-              Material movements vs {report.prior_period_label ?? 'prior'} · click a line above to
-              drill
+              Material movements vs last month — click a line above for source detail
             </span>
           </div>
           <div className="table-wrap">

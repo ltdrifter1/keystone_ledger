@@ -1,21 +1,13 @@
 import { NavLink, Outlet } from 'react-router-dom'
-import {
-  LayoutDashboard,
-  Sparkles,
-  ClipboardList,
-  FileBarChart2,
-  Settings,
-  Landmark,
-} from 'lucide-react'
+import { AlertTriangle, FileBarChart2, Landmark, Settings, BookOpen } from 'lucide-react'
 import { EngagementChip } from './PeriodChip'
 import { useEngagement } from '../period/PeriodContext'
 import { useSession } from '../session/SessionContext'
 
 const primary = [
-  { to: '/', label: 'Home', icon: LayoutDashboard },
-  { to: '/work', label: 'Work', icon: Sparkles },
-  { to: '/binder', label: 'Binder', icon: ClipboardList },
   { to: '/statements', label: 'Statements', icon: FileBarChart2 },
+  { to: '/exceptions', label: 'Exceptions', icon: AlertTriangle },
+  { to: '/work', label: 'Books', icon: BookOpen },
 ]
 
 const secondary = [
@@ -49,7 +41,6 @@ export function Layout() {
             <NavLink
               key={name}
               to={withPeriod(to)}
-              end={to === '/'}
               className={({ isActive }) => (isActive ? 'active' : '')}
             >
               <Icon size={16} />
@@ -67,11 +58,10 @@ export function Layout() {
           ))}
         </nav>
         <div className="nav-meta">
-          Flow: <strong>Home</strong> monthly rec → <strong>Work</strong> →{' '}
-          <strong>Binder</strong> sign-off → <strong>Statements</strong>.
+          One entity. One pack. Exceptions are why it will not print.
         </div>
         {user && (
-          <div className="user-chip" title="Named closer for audit and SoD">
+          <div className="user-chip" title="Signed-in user">
             <span className="period-chip-label">Signed in</span>
             <select
               className="select engagement-chip-select"

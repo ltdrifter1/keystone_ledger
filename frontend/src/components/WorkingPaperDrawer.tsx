@@ -1,8 +1,7 @@
 import { Link } from 'react-router-dom'
-import { X, ExternalLink, CheckCircle2, AlertTriangle, ClipboardList } from 'lucide-react'
+import { X, ExternalLink, CheckCircle2, AlertTriangle } from 'lucide-react'
 import type { DrillOut } from '../api'
 import { money } from '../lib/format'
-import { usePeriod } from '../period/PeriodContext'
 
 type Props = {
   open: boolean
@@ -13,12 +12,6 @@ type Props = {
 }
 
 export function WorkingPaperDrawer({ open, loading, error, data, onClose }: Props) {
-  const { year, month } = usePeriod()
-  const template = data?.template ?? null
-  const binderHref = template
-    ? `/binder?year=${year}&month=${month}&key=${template.key}`
-    : `/binder?year=${year}&month=${month}`
-
   return (
     <>
       <div className={`wp-scrim ${open ? 'open' : ''}`} onClick={onClose} />
@@ -26,29 +19,26 @@ export function WorkingPaperDrawer({ open, loading, error, data, onClose }: Prop
         <div className="wp-sheet">
           <header className="wp-header">
             <div>
-              <div className="wp-kicker">Working paper</div>
-              <h2>
-                {data?.wp_ref && <span className="wp-ref">{data.wp_ref}</span>}
-                {data?.line_label ?? (loading ? 'Loading…' : 'Detail')}
-              </h2>
+              <div className="wp-kicker">Source</div>
+              <h2>{data?.line_label ?? (loading ? 'Loading…' : 'Detail')}</h2>
               <p className="wp-meta">
                 {data ? (
                   <>
-                    {data.period_label} · {data.currency} · {data.row_count} supporting item
+                    {data.period_label} · {data.currency} · {data.row_count} item
                     {data.row_count === 1 ? '' : 's'}
                   </>
                 ) : (
-                  'Select a statement line to open the supporting schedule.'
+                  'Select a statement line to see the underlying transactions.'
                 )}
               </p>
             </div>
-            <button className="btn ghost wp-close" onClick={onClose} aria-label="Close working paper">
+            <button className="btn ghost wp-close" onClick={onClose} aria-label="Close source detail">
               <X size={16} />
             </button>
           </header>
 
           {error && <div className="error" style={{ margin: '0 1.1rem 0.75rem' }}>{error}</div>}
-          {loading && <p className="hint" style={{ padding: '0 1.1rem' }}>Assembling supporting detail…</p>}
+          {loading && <p className="hint" style={{ padding: '0 1.1rem' }}>Loading source transactions…</p>}
 
           {data && !loading && (
             <>
@@ -77,28 +67,8 @@ export function WorkingPaperDrawer({ open, loading, error, data, onClose }: Prop
                 </div>
               </div>
 
-              {template && (
-                <div className="wp-template-block">
-                  <div className="wp-template-head">
-                    <ClipboardList size={14} />
-                    <strong>{template.title} · binder</strong>
-                    <Link className="btn ghost" to={binderHref}>
-                      Open binder doc <ExternalLink size={12} />
-                    </Link>
-                  </div>
-                  <p className="wp-template-purpose">{template.purpose}</p>
-                  <p className="hint wp-template-tie">
-                    <strong>Tie-out:</strong> {template.tie_out}
-                  </p>
-                  <p className="hint" style={{ margin: '0.35rem 0 0' }}>
-                    Procedures, P/R sign-off, and period schedule live in the binder for {year}-
-                    {String(month).padStart(2, '0')}.
-                  </p>
-                </div>
-              )}
-
               <div className="wp-toolbar">
-                <span className="hint">Source transactions for this line</span>
+                <span className="hint">Transactions behind this line</span>
                 <Link
                   className="btn ghost"
                   to={`/transactions?search=${encodeURIComponent(data.line_label.split(' ')[0] || '')}`}
@@ -137,7 +107,6 @@ export function WorkingPaperDrawer({ open, loading, error, data, onClose }: Prop
                           <div className="hint">
                             {row.bank_account_name ?? '—'}
                             {row.is_split && ' · split'}
-                            {row.is_reconciled && ' · recon'}
                             {row.split_memo ? ` · ${row.split_memo}` : ''}
                           </div>
                         </td>
