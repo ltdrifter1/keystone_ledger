@@ -32,13 +32,15 @@ def test_all_main_section_templates_exist():
         "unearned_revenue",
         "equity",
         "pnl_analysis",
+        "bank_transfers",
     }
     assert expected <= keys
-    assert len(list_templates()) == 11
+    assert len(list_templates()) == 12
 
 
 def test_template_lookup_by_line_and_account():
     assert find_template(line_code="BS_CASH").key == "cash"
+    assert find_template(line_code="BS_CASH_XFER").key == "bank_transfers"
     assert find_template(account_codes=["2000"]).key == "ap"
     assert find_template(line_code="NI").key == "pnl_analysis"
     assert find_template(line_code="BS_SH_LOAN").wp_ref == "D.5"
@@ -49,7 +51,12 @@ def test_balance_sheet_uses_wp_refs():
     try:
         report = build_report(
             db,
-            ReportFilter(report_type="balance_sheet", scenario_id=1, reporting_currency="CAD"),
+            ReportFilter(
+                report_type="balance_sheet",
+                scenario_id=1,
+                reporting_currency="CAD",
+                include_zero_lines=True,
+            ),
         )
         by_code = {line.line_code: line for line in report.lines}
         assert "BS_CASH" in by_code

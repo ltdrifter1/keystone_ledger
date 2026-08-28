@@ -197,6 +197,7 @@ export type ReportFilters = {
   compare_budget?: boolean
   materiality_amount?: number | null
   materiality_pct?: number | null
+  include_zero_lines?: boolean
 }
 
 export type ReportLine = {
