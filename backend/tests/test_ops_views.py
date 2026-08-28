@@ -60,5 +60,6 @@ def test_sales_expenses_budget_views_api():
     assert budget.status_code == 200, budget.text
     b = budget.json()
     assert b["budget_facts_ready"] is True
+    assert "budget_is_illustrative" in b
     assert len(b["cash_rows"]) >= 1
     assert len(b["pnl_kpis"]) >= 1

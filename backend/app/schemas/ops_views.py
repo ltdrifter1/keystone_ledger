@@ -88,4 +88,5 @@ class BudgetViewOut(BaseModel):
     pnl_lines: list[OpsLine] = Field(default_factory=list)
     cash_rows: list[CashBudgetRow] = Field(default_factory=list)
     budget_facts_ready: bool = False
+    budget_is_illustrative: bool = False
     report_filters: dict = Field(default_factory=dict)

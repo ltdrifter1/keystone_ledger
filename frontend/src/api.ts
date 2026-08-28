@@ -242,6 +242,11 @@ export type FluxItem = {
   drillable: boolean
 }
 
+export type ReportingNote = {
+  heading: string
+  body: string
+}
+
 export type Report = {
   report_type: string
   title: string
@@ -261,6 +266,9 @@ export type Report = {
   balance_difference?: string | null
   fx_missing?: boolean
   fx_missing_pairs?: string[]
+  accounting_basis?: string | null
+  notes?: ReportingNote[]
+  pack_disclaimer?: string | null
 }
 
 export type AnalyticsKpi = {
@@ -281,6 +289,78 @@ export type AnalyticsPack = {
   kpis: AnalyticsKpi[]
   flux: FluxItem[]
   statements: Report[]
+  generated_at: string
+  budget_is_illustrative?: boolean
+  notes?: ReportingNote[]
+  pack_disclaimer?: string | null
+  can_print?: boolean
+}
+
+export type StatementPlug = {
+  key: string
+  title: string
+  detail: string
+  amount?: string | null
+  href?: string | null
+  blocking: boolean
+}
+
+export type StatementDiagnostics = {
+  entity_id: number
+  entity_code?: string | null
+  entity_name?: string | null
+  period_label: string
+  currency: string
+  accounting_basis?: string | null
+  is_balanced: boolean
+  balance_difference?: string | null
+  fx_missing: boolean
+  fx_missing_pairs: string[]
+  uncategorized_count: number
+  uncategorized_amount: string
+  unmapped_count: number
+  unmapped_codes: string[]
+  cashbook_journals_count: number
+  plugs: StatementPlug[]
+  can_print: boolean
+  notes: ReportingNote[]
+  pack_disclaimer?: string | null
+  statements_href: string
+  trial_balance_href: string
+}
+
+export type TrialBalanceRow = {
+  account_id?: number | null
+  account_code: string
+  account_name: string
+  account_type: string
+  statement?: string | null
+  line_code?: string | null
+  line_label?: string | null
+  mapped: boolean
+  debit: string
+  credit: string
+  amount: string
+  synthetic: boolean
+  exception?: string | null
+}
+
+export type TrialBalance = {
+  title: string
+  cover_title?: string | null
+  entity_name?: string | null
+  period_label?: string | null
+  currency: string
+  as_of_date: string
+  accounting_basis?: string | null
+  rows: TrialBalanceRow[]
+  total_debit: string
+  total_credit: string
+  unmapped_count: number
+  uncategorized_count: number
+  uncategorized_amount: string
+  is_complete: boolean
+  notes: ReportingNote[]
   generated_at: string
 }
 
@@ -566,6 +646,7 @@ export type BudgetView = {
   pnl_lines: OpsLine[]
   cash_rows: CashBudgetRow[]
   budget_facts_ready: boolean
+  budget_is_illustrative?: boolean
   report_filters: Record<string, unknown>
 }
 
@@ -650,6 +731,8 @@ export type EngagementHome = {
     journals?: number
     month_locked?: boolean
     journal_led?: boolean
+    statements_balanced?: boolean
+    can_print?: boolean
   }
   queue: Array<{
     key: string
@@ -790,6 +873,18 @@ export const api = {
     }),
   analytics: (body: Record<string, unknown>) =>
     request<AnalyticsPack>('/reports/analytics', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }),
+  trialBalance: (body: Record<string, unknown>) =>
+    request<TrialBalance>('/reports/trial-balance', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }),
+  statementDiagnostics: (body: Record<string, unknown>) =>
+    request<StatementDiagnostics>('/reports/diagnostics', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),

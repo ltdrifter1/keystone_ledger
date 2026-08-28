@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.engines.dashboard import _target_status
 from app.engines.reporting import build_report
+from app.engines.statement_pack import budget_is_illustrative
 from app.models import BankAccount, DimAccount, DimEntity, DimScenario, Transaction
 from app.schemas.reports import ReportFilter
 
@@ -392,8 +393,9 @@ def build_budget_view(
         if kpi:
             pnl_kpis.append(kpi)
 
+    illustrative = budget_is_illustrative(db)
     return {
-        "title": "Budget overview",
+        "title": "Illustrative target — not a statutory budget" if illustrative else "Budget overview",
         "period_label": f"{year}-{month:02d}",
         "period_year": year,
         "period_month": month,
@@ -404,5 +406,6 @@ def build_budget_view(
         "pnl_lines": unique_lines,
         "cash_rows": _cash_budget_rows(db, entity_id=entity_id, year=year, month=month),
         "budget_facts_ready": budget_ready,
+        "budget_is_illustrative": illustrative,
         "report_filters": filters.model_dump(mode="json"),
     }

@@ -24,13 +24,13 @@ export function AnalyticsPage({ embedded = false }: { embedded?: boolean }) {
       month,
       scenario_id: 1,
       reporting_currency: entityCurrency || 'CAD',
-      consolidate: !entityId,
+      consolidate: false,
       entity_ids: entityId ? [Number(entityId)] : null,
       as_of_date: periodEndIso(year, month),
       date_to: periodEndIso(year, month),
       compare_prior_period: true,
       compare_prior_year: true,
-      compare_budget: true,
+      compare_budget: false,
     }),
     [year, month, entityId, entityCurrency],
   )
@@ -66,8 +66,9 @@ export function AnalyticsPage({ embedded = false }: { embedded?: boolean }) {
       {embedded && (
         <div className="toolbar" style={{ marginBottom: '0.85rem' }}>
           <span className="hint">
-            Material flux vs prior period / prior year / budget for this month. Materiality{' '}
-            {pack ? `${money(pack.materiality_amount)} or ${Number(pack.materiality_pct)}%` : '…'}.
+            Material flux vs last month for this engagement. Comparatives on the statements are prior fiscal year.
+            Materiality {pack ? `${money(pack.materiality_amount)} or ${Number(pack.materiality_pct)}%` : '…'}.
+            {pack?.budget_is_illustrative ? ' Budget figures are illustrative targets, not a statutory budget.' : ''}
           </span>
           <button className="btn" onClick={() => void api.exportStatements(filters)} disabled={loading}>
             <Download size={14} /> Export pack
@@ -100,7 +101,7 @@ export function AnalyticsPage({ embedded = false }: { embedded?: boolean }) {
       <section className="panel" style={{ marginTop: '1rem' }}>
         <div className="panel-header">
           <h2>Material movements</h2>
-          <span className="hint">{pack?.flux.length ?? 0} flagged lines across IS / BS / CF</span>
+          <span className="hint">{pack?.flux.length ?? 0} flagged lines across P&amp;L / Balance Sheet</span>
         </div>
         {!pack?.flux.length && !loading && <p className="hint">No material flux this period.</p>}
         <div className="table-wrap">

@@ -40,6 +40,13 @@ from app.schemas.reports import (
     WorkingPaperSnippet,
 )
 
+EQUITY_LINE_MAP = {
+    "EQ_OPENING": "BS_EQUITY",
+    "EQ_DRAWS": "BS_DRAWS",
+    "EQ_EARNINGS": CURRENT_EARNINGS_CODE,
+    "EQ_CLOSING": "BS_TOT_EQUITY",
+}
+
 
 def _period_label(filters: ReportFilter) -> str:
     return period_label(filters)
@@ -235,6 +242,12 @@ def _drill_cashbook_cash(
 def drill_report_line(db: Session, payload: DrillRequest) -> DrillOut:
     settings = get_settings()
     filters = payload.filters
+    line_code = payload.line_code
+    if line_code in EQUITY_LINE_MAP or filters.report_type == "equity":
+        mapped = EQUITY_LINE_MAP.get(line_code, line_code)
+        filters = filters.model_copy(update={"report_type": "balance_sheet"})
+        payload = payload.model_copy(update={"line_code": mapped, "filters": filters})
+        line_code = mapped
     reporting_currency = filters.reporting_currency or settings.default_reporting_currency
     balance_sheet = filters.report_type == "balance_sheet"
 

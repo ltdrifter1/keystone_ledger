@@ -41,6 +41,7 @@ def test_template_lookup_by_line_and_account():
     assert find_template(line_code="BS_CASH").key == "cash"
     assert find_template(account_codes=["2000"]).key == "ap"
     assert find_template(line_code="NI").key == "pnl_analysis"
+    assert find_template(line_code="EQ_OPENING").key == "equity"
     assert find_template(line_code="BS_SH_LOAN").wp_ref == "D.5"
 
 

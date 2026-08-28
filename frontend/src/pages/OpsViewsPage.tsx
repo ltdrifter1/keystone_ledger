@@ -108,13 +108,22 @@ export function OpsViewPage({ mode, embedded = false }: { mode: Mode; embedded?:
     void load()
   }, [load])
 
-  const title = mode === 'sales' ? 'Sales' : mode === 'expenses' ? 'Expenses' : 'Budget overview'
+  const title =
+    mode === 'sales'
+      ? 'Sales'
+      : mode === 'expenses'
+        ? 'Expenses'
+        : budget?.budget_is_illustrative
+          ? 'Illustrative target — not a statutory budget'
+          : 'Budget overview'
   const blurb =
     mode === 'sales'
       ? 'Revenue, channels, and sales vs budget for this engagement.'
       : mode === 'expenses'
         ? 'COGS and operating spend vs budget.'
-        : 'P&L actual vs budget plus cash targets by bank.'
+        : budget?.budget_is_illustrative
+          ? 'Illustrative P&L target — not a budget. Do not issue this as a statutory comparison.'
+          : 'P&L actual vs budget plus cash targets by bank.'
 
   const kpis =
     mode === 'sales' ? sales?.kpis : mode === 'expenses' ? expenses?.kpis : budget?.pnl_kpis
@@ -186,7 +195,7 @@ export function OpsViewPage({ mode, embedded = false }: { mode: Mode; embedded?:
 
       <section className="panel" style={{ marginTop: '1rem' }}>
         <div className="panel-header">
-          <h2>{mode === 'budget' ? 'P&L vs budget' : `${title} detail`}</h2>
+            <h2>{mode === 'budget' ? (budget?.budget_is_illustrative ? 'P&L vs illustrative target' : 'P&L vs budget') : `${title} detail`}</h2>
           <span className="hint">
             {showCompare ? 'Actual vs budget' : 'Actual'} ·{' '}
             <Link to={`/statements?tab=statement&year=${year}&month=${month}`}>Open statement</Link>

@@ -1,27 +1,61 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.engines.drilldown import drill_report_line
-from app.engines.reporting import build_analytics_pack, build_report, export_statement_pack_xlsx
-from app.schemas.reports import AnalyticsPack, DrillOut, DrillRequest, ReportFilter, ReportOut
+from app.engines.reporting import build_analytics_pack, export_statement_pack_xlsx
+from app.engines.statement_pack import (
+    assert_statement_scope,
+    build_official_report,
+    build_statement_diagnostics,
+    build_trial_balance,
+)
+from app.schemas.reports import (
+    AnalyticsPack,
+    DrillOut,
+    DrillRequest,
+    ReportFilter,
+    ReportOut,
+    StatementDiagnostics,
+    TrialBalanceOut,
+)
 
 router = APIRouter(prefix="/reports")
+
+CASH_FLOW_GONE = "Cash flow is not part of this pack. Print P&L, the balance sheet, and the equity roll."
+
+
+def _official_or_400(db: Session, filters: ReportFilter) -> ReportOut:
+    try:
+        assert_statement_scope(db, filters)
+        return build_official_report(db, filters)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
+def _scoped_filters(db: Session, filters: ReportFilter) -> ReportFilter:
+    try:
+        entity_id = assert_statement_scope(db, filters)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return filters.model_copy(update={"entity_ids": [entity_id], "consolidate": False})
 
 
 @router.post("/run", response_model=ReportOut)
 def run_report(filters: ReportFilter, db: Session = Depends(get_db)) -> ReportOut:
-    return build_report(db, filters)
+    return _official_or_400(db, filters)
 
 
 @router.post("/analytics", response_model=AnalyticsPack)
 def analytics(filters: ReportFilter, db: Session = Depends(get_db)) -> AnalyticsPack:
+    filters = _scoped_filters(db, filters)
     return build_analytics_pack(db, filters)
 
 
 @router.post("/export")
 def export_pack(filters: ReportFilter, db: Session = Depends(get_db)) -> StreamingResponse:
+    filters = _scoped_filters(db, filters)
     payload = export_statement_pack_xlsx(db, filters)
     year = filters.year or 0
     month = filters.month or 0
@@ -31,6 +65,50 @@ def export_pack(filters: ReportFilter, db: Session = Depends(get_db)) -> Streami
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+@router.post("/trial-balance", response_model=TrialBalanceOut)
+def trial_balance(filters: ReportFilter, db: Session = Depends(get_db)) -> TrialBalanceOut:
+    filters = _scoped_filters(db, filters)
+    try:
+        return build_trial_balance(db, filters)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
+@router.post("/diagnostics", response_model=StatementDiagnostics)
+def diagnostics_post(filters: ReportFilter, db: Session = Depends(get_db)) -> StatementDiagnostics:
+    filters = _scoped_filters(db, filters)
+    try:
+        return build_statement_diagnostics(db, filters)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
+@router.get("/diagnostics", response_model=StatementDiagnostics)
+def diagnostics_get(
+    year: int | None = None,
+    month: int | None = None,
+    entity_id: int | None = None,
+    reporting_currency: str = "CAD",
+    db: Session = Depends(get_db),
+) -> StatementDiagnostics:
+    from datetime import date
+
+    filters = ReportFilter(
+        report_type="balance_sheet",
+        year=year,
+        month=month,
+        entity_ids=[entity_id] if entity_id else None,
+        reporting_currency=reporting_currency,
+        consolidate=False,
+        as_of_date=date.today() if year is None else None,
+    )
+    filters = _scoped_filters(db, filters)
+    try:
+        return build_statement_diagnostics(db, filters)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
 
 
 @router.post("/drill", response_model=DrillOut)
@@ -61,14 +139,16 @@ def income_statement(
         compare_scenario_id=compare_scenario_id,
         entity_ids=[entity_id] if entity_id else None,
         reporting_currency=reporting_currency,
-        consolidate=entity_id is None,
+        consolidate=False,
     )
-    return build_report(db, filters)
+    return _official_or_400(db, filters)
 
 
 @router.get("/balance-sheet", response_model=ReportOut)
 def balance_sheet(
     as_of_date: str | None = None,
+    year: int | None = None,
+    month: int | None = None,
     scenario_id: int = 1,
     entity_id: int | None = None,
     reporting_currency: str = "CAD",
@@ -78,31 +158,43 @@ def balance_sheet(
 
     filters = ReportFilter(
         report_type="balance_sheet",
-        as_of_date=date.fromisoformat(as_of_date) if as_of_date else date.today(),
+        as_of_date=date.fromisoformat(as_of_date) if as_of_date else None,
+        year=year,
+        month=month,
         scenario_id=scenario_id,
         entity_ids=[entity_id] if entity_id else None,
         reporting_currency=reporting_currency,
-        consolidate=entity_id is None,
+        consolidate=False,
     )
-    return build_report(db, filters)
+    return _official_or_400(db, filters)
 
 
-@router.get("/cash-flow", response_model=ReportOut)
-def cash_flow(
+@router.get("/equity", response_model=ReportOut)
+def equity_statement(
     year: int | None = None,
-    period: str = "ytd",
-    scenario_id: int = 1,
+    month: int | None = None,
     entity_id: int | None = None,
     reporting_currency: str = "CAD",
     db: Session = Depends(get_db),
 ) -> ReportOut:
     filters = ReportFilter(
-        report_type="cash_flow",
+        report_type="equity",
         year=year,
-        period=period,
-        scenario_id=scenario_id,
+        month=month,
+        period="ytd",
         entity_ids=[entity_id] if entity_id else None,
         reporting_currency=reporting_currency,
-        consolidate=entity_id is None,
+        consolidate=False,
     )
-    return build_report(db, filters)
+    return _official_or_400(db, filters)
+
+
+@router.get("/cash-flow")
+def cash_flow(
+    year: int | None = Query(None),
+    period: str = "ytd",
+    scenario_id: int = 1,
+    entity_id: int | None = None,
+    reporting_currency: str = "CAD",
+) -> None:
+    raise HTTPException(status_code=410, detail=CASH_FLOW_GONE)

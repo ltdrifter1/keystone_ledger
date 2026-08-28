@@ -20,6 +20,8 @@ class EngagementProgress(BaseModel):
     journals: int = 0
     month_locked: bool = False
     journal_led: bool = False
+    statements_balanced: bool = False
+    can_print: bool = False
 
 
 class EngagementQueueItem(BaseModel):
