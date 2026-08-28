@@ -429,6 +429,29 @@ table.data tr.total td {
   letter-spacing: -0.03em;
 }
 
+.pack-disclaimer {
+  margin: 0.35rem 0 0;
+  font-size: 0.85rem;
+  color: var(--text-dim);
+}
+
+.print-only {
+  display: none;
+}
+
+.notes-list {
+  margin: 0;
+  padding-left: 1.2rem;
+  display: grid;
+  gap: 0.65rem;
+  color: var(--text);
+  line-height: 1.45;
+}
+
+.tb-exception td {
+  color: var(--warn, #d4a017);
+}
+
 .toast {
   position: fixed;
   right: 1rem;
@@ -1740,6 +1763,21 @@ a.kpi {
   }
   .statement-table tbody tr.drillable {
     cursor: default;
+  }
+  .statement-notes {
+    page-break-before: always;
+    background: #fff;
+    border: 0;
+    box-shadow: none;
+  }
+  .notes-list {
+    color: #111;
+  }
+  .pack-disclaimer {
+    color: #333;
+  }
+  .print-only {
+    display: block !important;
   }
   .data th,
   .data td {

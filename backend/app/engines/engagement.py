@@ -17,6 +17,7 @@ from app.engines.entity_close import get_entity_period_lock, is_journal_led_enti
 from app.engines.intercompany import unmatched_intercompany_count
 from app.engines.journals import list_journals
 from app.engines.reporting import build_report
+from app.engines.statement_pack import build_statement_diagnostics
 from app.models import BankAccount, DimEntity, Transaction
 from app.schemas.reports import ReportFilter
 
@@ -376,6 +377,47 @@ def build_engagement_home(
         )
         step += 1
 
+    statements_balanced = False
+    can_print = False
+    if entity_id:
+        end = date(year, month, monthrange(year, month)[1])
+        try:
+            diag = build_statement_diagnostics(
+                db,
+                ReportFilter(
+                    report_type="balance_sheet",
+                    year=year,
+                    month=month,
+                    as_of_date=end,
+                    date_to=end,
+                    scenario_id=1,
+                    reporting_currency=currency,
+                    entity_ids=[entity_id],
+                    consolidate=False,
+                ),
+            )
+            statements_balanced = bool(diag.is_balanced)
+            can_print = bool(diag.can_print)
+            if not diag.can_print:
+                plug_titles = "; ".join(p.title for p in diag.plugs[:3]) or "Exceptions remain"
+                queue.append(
+                    {
+                        "key": "statements-balance",
+                        "step": step,
+                        "phase": "home",
+                        "priority": 85,
+                        "title": "Statement will not balance",
+                        "detail": plug_titles,
+                        "href": (diag.statements_href or f"/statements?year={year}&month={month}&tab=bs")
+                        + f"&entity_id={entity_id}",
+                        "count": len(diag.plugs) or None,
+                        "status": "open",
+                    }
+                )
+                step += 1
+        except ValueError:
+            pass
+
     if entity_id and not (month_lock and month_lock.get("is_locked")):
         queue.append(
             {
@@ -448,11 +490,13 @@ def build_engagement_home(
             "journals": len(journals),
             "month_locked": bool(month_lock and month_lock.get("is_locked")),
             "journal_led": journal_led,
+            "statements_balanced": statements_balanced,
+            "can_print": can_print,
         },
         "queue": queue,
         "work_href": f"/work?year={year}&month={month}",
         "binder_href": f"/binder?year={year}&month={month}",
-        "statements_href": f"/statements?year={year}&month={month}&tab=statement",
+        "statements_href": f"/statements?year={year}&month={month}&tab=bs",
     }
 
 

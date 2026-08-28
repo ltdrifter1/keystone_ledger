@@ -88,6 +88,8 @@ def period_label(filters: ReportFilter) -> str:
     end = filters.as_of_date or filters.date_to or _month_end(year, month)
     if filters.report_type == "balance_sheet":
         return f"As at {_pretty_date(end)}"
+    if filters.report_type == "equity":
+        return f"Fiscal YTD ended {_pretty_date(end)}"
     if filters.period == "monthly":
         return f"Month ended {_pretty_date(_month_end(year, month))}"
     if filters.period == "quarterly":
@@ -792,7 +794,7 @@ def _statement_title(report_type: str) -> str:
     return {
         "income_statement": PNL_TITLE,
         "balance_sheet": BS_TITLE,
-        "cash_flow": "Cash Flow Statement",
+        "equity": "Statement of Changes in Equity",
     }.get(report_type, report_type)
 
 
@@ -1390,38 +1392,90 @@ def _line_by_codes(report: ReportOut, codes: tuple[str, ...]) -> ReportLine | No
 
 
 def build_analytics_pack(db: Session, filters: ReportFilter) -> AnalyticsPack:
-    """Analytical review: Profit & Loss + Balance Sheet with flux vs prior period."""
-    base = filters.model_copy(
+    """Analytical review: official P&L + BS + equity when one entity is in scope.
+
+    Statement comparatives are prior fiscal year. Flux is month-over-month.
+    Budget is omitted from the statutory pack (it is illustrative when seeded).
+    """
+    from .statement_pack import (
+        PACK_DISCLAIMER,
+        SCOPE_ERROR,
+        assert_statement_scope,
+        budget_is_illustrative,
+        build_official_report,
+        build_statement_diagnostics,
+    )
+
+    official = True
+    scoped = filters
+    try:
+        eid = assert_statement_scope(db, filters)
+        scoped = filters.model_copy(update={"entity_ids": [eid], "consolidate": False})
+    except ValueError:
+        official = False
+
+    stmt_base = scoped.model_copy(
+        update={
+            "compare_prior_period": False,
+            "compare_prior_year": True,
+            "compare_budget": False,
+        }
+    )
+    flux_base = scoped.model_copy(
         update={
             "compare_prior_period": True,
-            "compare_prior_year": True,
-            "compare_budget": True,
+            "compare_prior_year": False,
+            "compare_budget": False,
         }
     )
     statements: list[ReportOut] = []
+    if official:
+        for rtype, period in (
+            ("income_statement", filters.period or "ytd"),
+            ("balance_sheet", "monthly"),
+            ("equity", "ytd"),
+        ):
+            stmt_filters = stmt_base.model_copy(update={"report_type": rtype, "period": period})
+            statements.append(build_official_report(db, stmt_filters))
+        notes = list(statements[0].notes)
+        disclaimer = PACK_DISCLAIMER
+        try:
+            can_print = build_statement_diagnostics(db, stmt_base).can_print
+        except ValueError:
+            can_print = False
+    else:
+        for rtype, period in (
+            ("income_statement", filters.period or "ytd"),
+            ("balance_sheet", "monthly"),
+        ):
+            stmt_filters = stmt_base.model_copy(update={"report_type": rtype, "period": period})
+            statements.append(build_report(db, stmt_filters))
+        notes = []
+        disclaimer = SCOPE_ERROR + " " + PACK_DISCLAIMER
+        can_print = False
+
+    flux: list[FluxItem] = []
+    flux_reports: dict[str, ReportOut] = {}
     for rtype, period in (
         ("income_statement", filters.period or "ytd"),
         ("balance_sheet", "monthly"),
     ):
-        stmt_filters = base.model_copy(update={"report_type": rtype, "period": period})
-        statements.append(build_report(db, stmt_filters))
-
-    flux: list[FluxItem] = []
-    for stmt in statements:
-        flux.extend(stmt.flux)
+        flux_stmt = build_report(
+            db, flux_base.model_copy(update={"report_type": rtype, "period": period})
+        )
+        flux_reports[rtype] = flux_stmt
+        flux.extend(flux_stmt.flux)
     flux.sort(key=lambda i: abs(i.variance or Decimal("0")), reverse=True)
 
-    mat_amt, mat_pct = _materiality(base)
+    mat_amt, mat_pct = _materiality(stmt_base)
     kpis: list[AnalyticsKpi] = []
-    is_rpt = statements[0]
-    bs_rpt = statements[1]
     for key, codes, label in (
         ("revenue", ("TOT_REV", "TOT_REVENUE"), "Revenue"),
         ("expense", ("TOT_EXP", "TOT_EXPENSE"), "Expenses"),
         ("net_income", ("NI", "NET_INCOME"), "Net income"),
         ("cash", ("BS_CASH", "CASH"), "Cash"),
     ):
-        src = bs_rpt if key == "cash" else is_rpt
+        src = flux_reports["balance_sheet"] if key == "cash" else flux_reports["income_statement"]
         line = _line_by_codes(src, codes)
         if not line:
             continue
@@ -1443,14 +1497,18 @@ def build_analytics_pack(db: Session, filters: ReportFilter) -> AnalyticsPack:
         )
 
     return AnalyticsPack(
-        period_label=period_label(base),
-        currency=base.reporting_currency,
+        period_label=period_label(stmt_base),
+        currency=stmt_base.reporting_currency,
         materiality_amount=mat_amt,
         materiality_pct=mat_pct,
         kpis=kpis,
         flux=flux[:40],
         statements=statements,
         generated_at=datetime.utcnow().isoformat() + "Z",
+        budget_is_illustrative=budget_is_illustrative(db),
+        notes=notes,
+        pack_disclaimer=disclaimer,
+        can_print=can_print,
     )
 
 
@@ -1460,6 +1518,8 @@ def export_statement_pack_xlsx(db: Session, filters: ReportFilter) -> bytes:
     from openpyxl import Workbook
     from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
     from openpyxl.utils import get_column_letter
+
+    from .statement_pack import PACK_DISCLAIMER, budget_is_illustrative, build_trial_balance
 
     pack = build_analytics_pack(db, filters)
     wb = Workbook()
@@ -1474,6 +1534,34 @@ def export_statement_pack_xlsx(db: Session, filters: ReportFilter) -> bytes:
         bottom=Side(style="thin", color="7DA898"),
     )
     money_fmt = '#,##0.00;(#,##0.00);"—"'
+
+    cover = wb.active
+    cover.title = "Cover"
+    cover["A1"] = "Keystone Ledger"
+    cover["A1"].font = Font(bold=True, size=16)
+    cover["A2"] = "Unaudited financial reporting pack"
+    cover["A3"] = pack.pack_disclaimer or PACK_DISCLAIMER
+    cover["A5"] = "Period"
+    cover["B5"] = pack.period_label
+    cover["A6"] = "Currency"
+    cover["B6"] = pack.currency
+    cover["A7"] = "Printable"
+    cover["B7"] = "Yes" if pack.can_print else "No — do not issue this pack"
+    cover["A8"] = "Budget column"
+    cover["B8"] = (
+        "Illustrative target — not a statutory budget"
+        if (pack.budget_is_illustrative or budget_is_illustrative(db))
+        else "Posted budget lines"
+    )
+    cover["A10"] = "Notes"
+    cover["A10"].font = total_font
+    note_row = 11
+    for note in pack.notes:
+        cover.cell(note_row, 1, note.heading)
+        cover.cell(note_row, 2, note.body)
+        note_row += 1
+    cover.column_dimensions["A"].width = 28
+    cover.column_dimensions["B"].width = 80
 
     def write_sheet(ws, report: ReportOut) -> None:
         ws.append([report.cover_title or report.title])
@@ -1533,12 +1621,60 @@ def export_statement_pack_xlsx(db: Session, filters: ReportFilter) -> bytes:
         ws.column_dimensions["B"].width = 42
         ws.freeze_panes = f"C{header_row + 1}"
 
-    first = True
     for stmt in pack.statements:
-        ws = wb.active if first else wb.create_sheet()
-        first = False
-        ws.title = stmt.title[:31]
+        ws = wb.create_sheet(stmt.title[:31])
         write_sheet(ws, stmt)
+
+    try:
+        tb = build_trial_balance(db, filters)
+        ws_tb = wb.create_sheet("Trial Balance")
+        ws_tb.append([tb.cover_title or tb.title])
+        ws_tb.append([tb.period_label or "", tb.accounting_basis or ""])
+        ws_tb.append([])
+        tb_headers = ["Code", "Account", "Type", "Debit", "Credit", "Mapped line", "Exception"]
+        ws_tb.append(tb_headers)
+        header_row = ws_tb.max_row
+        for col, _ in enumerate(tb_headers, start=1):
+            cell = ws_tb.cell(header_row, col)
+            cell.font = header_font
+            cell.fill = header_fill
+        for row in tb.rows:
+            ws_tb.append(
+                [
+                    row.account_code,
+                    row.account_name,
+                    row.account_type,
+                    float(row.debit),
+                    float(row.credit),
+                    row.line_label or "",
+                    row.exception or "",
+                ]
+            )
+            r = ws_tb.max_row
+            ws_tb.cell(r, 4).number_format = money_fmt
+            ws_tb.cell(r, 5).number_format = money_fmt
+        ws_tb.append(["", "Total", "", float(tb.total_debit), float(tb.total_credit), "", ""])
+        tot_row = ws_tb.max_row
+        for c in range(1, 8):
+            ws_tb.cell(tot_row, c).font = total_font
+        ws_tb.cell(tot_row, 4).number_format = money_fmt
+        ws_tb.cell(tot_row, 5).number_format = money_fmt
+        ws_tb.column_dimensions["B"].width = 42
+        ws_tb.column_dimensions["F"].width = 28
+        ws_tb.column_dimensions["G"].width = 40
+    except ValueError:
+        pass
+
+    if pack.notes:
+        notes_ws = wb.create_sheet("Notes")
+        notes_ws["A1"] = "Notes to the unaudited pack"
+        notes_ws["A1"].font = Font(bold=True, size=14)
+        notes_ws["A2"] = pack.pack_disclaimer or PACK_DISCLAIMER
+        notes_ws.append(["Heading", "Note"])
+        for note in pack.notes:
+            notes_ws.append([note.heading, note.body])
+        notes_ws.column_dimensions["A"].width = 28
+        notes_ws.column_dimensions["B"].width = 90
 
     flux_ws = wb.create_sheet("Flux")
     flux_ws.append(["Statement", "Ref", "Line", "Current", "Prior", "$ Var", "% Var", "Flag", "Commentary"])

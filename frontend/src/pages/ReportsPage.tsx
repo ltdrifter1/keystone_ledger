@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { api, type DrillOut, type Entity, type Report, type ReportFilters, type ReportLine, type Scenario } from '../api'
+import { api, type DrillOut, type Entity, type Report, type ReportFilters, type ReportLine, type Scenario, type StatementDiagnostics } from '../api'
 import { WorkingPaperDrawer } from '../components/WorkingPaperDrawer'
 import { money } from '../lib/format'
 import { useEngagement } from '../period/PeriodContext'
@@ -11,7 +11,7 @@ function periodEndIso(year: number, month: number) {
   return d.toISOString().slice(0, 10)
 }
 
-export function ReportsPage({ forcedType }: { forcedType?: 'income_statement' | 'balance_sheet' }) {
+export function ReportsPage({ forcedType }: { forcedType?: 'income_statement' | 'balance_sheet' | 'equity' }) {
   const {
     year,
     month,
@@ -25,7 +25,7 @@ export function ReportsPage({ forcedType }: { forcedType?: 'income_statement' | 
   const [searchParams] = useSearchParams()
   const initialType = forcedType || searchParams.get('type') || 'income_statement'
   const [reportType, setReportType] = useState(
-    initialType === 'balance_sheet' ? 'balance_sheet' : 'income_statement',
+    initialType === 'balance_sheet' ? 'balance_sheet' : initialType === 'equity' ? 'equity' : 'income_statement',
   )
   const [reportPeriod, setReportPeriod] = useState(
     initialType === 'balance_sheet' ? 'monthly' : 'ytd',
@@ -33,8 +33,8 @@ export function ReportsPage({ forcedType }: { forcedType?: 'income_statement' | 
   const [entityId, setEntityIdLocal] = useState(engagementEntityId || '')
   const [scenarioId, setScenarioId] = useState('1')
   const [compareScenarioId, setCompareScenarioId] = useState('')
-  const [comparePrior, setComparePrior] = useState(true)
-  const [compareYear, setCompareYear] = useState(false)
+  const [comparePrior, setComparePrior] = useState(false)
+  const [compareYear, setCompareYear] = useState(true)
   const [compareBudget, setCompareBudget] = useState(false)
   const [showRefs, setShowRefs] = useState(false)
   const [showZeros, setShowZeros] = useState(false)
@@ -48,6 +48,7 @@ export function ReportsPage({ forcedType }: { forcedType?: 'income_statement' | 
   const [drillLoading, setDrillLoading] = useState(false)
   const [drillError, setDrillError] = useState<string | null>(null)
   const [drawerOpen, setDrawerOpen] = useState(false)
+  const [diagnostics, setDiagnostics] = useState<StatementDiagnostics | null>(null)
 
   useEffect(() => {
     Promise.all([api.entities(), api.scenarios()]).then(([e, s]) => {
@@ -69,12 +70,14 @@ export function ReportsPage({ forcedType }: { forcedType?: 'income_statement' | 
     if (forcedType) {
       setReportType(forcedType)
       if (forcedType === 'balance_sheet') setReportPeriod('monthly')
+      else setReportPeriod('ytd')
       return
     }
     const t = searchParams.get('type')
-    if (t === 'balance_sheet' || t === 'income_statement') {
+    if (t === 'balance_sheet' || t === 'income_statement' || t === 'equity') {
       setReportType(t)
       if (t === 'balance_sheet') setReportPeriod('monthly')
+      else setReportPeriod('ytd')
     }
     const y = searchParams.get('year')
     const m = searchParams.get('month')
@@ -92,7 +95,7 @@ export function ReportsPage({ forcedType }: { forcedType?: 'income_statement' | 
       month,
       scenario_id: Number(scenarioId),
       reporting_currency: entityCurrency || 'CAD',
-      consolidate: !entityId,
+      consolidate: false,
       entity_ids: entityId ? [Number(entityId)] : null,
       compare_scenario_id: compareScenarioId ? Number(compareScenarioId) : null,
       as_of_date: asOf,
@@ -106,17 +109,27 @@ export function ReportsPage({ forcedType }: { forcedType?: 'income_statement' | 
   )
 
   const run = useCallback(async () => {
+    if (!entityId) {
+      setError('Select one entity. WBC CAN and WBC USA stay separate — this pack does not consolidate.')
+      setReport(null)
+      return
+    }
     setLoading(true)
     setError(null)
     try {
       const res = await api.report(filters)
       setReport(res)
+      try {
+        setDiagnostics(await api.statementDiagnostics(filters))
+      } catch {
+        setDiagnostics(null)
+      }
     } catch (e) {
       setError((e as Error).message)
     } finally {
       setLoading(false)
     }
-  }, [filters])
+  }, [filters, entityId])
 
   useEffect(() => {
     void run()
@@ -165,7 +178,13 @@ export function ReportsPage({ forcedType }: { forcedType?: 'income_statement' | 
 
   const cover =
     report?.cover_title ||
-    `${entityName ?? entityCode ?? 'Entity'} · ${activeType === 'balance_sheet' ? 'Balance Sheet' : 'Profit & Loss'} · ${report?.period_label ?? ''} · ${entityCurrency || 'CAD'}`
+    `${entityName ?? entityCode ?? 'Entity'} · ${
+      activeType === 'balance_sheet'
+        ? 'Balance Sheet'
+        : activeType === 'equity'
+          ? 'Statement of Changes in Equity'
+          : 'Profit & Loss'
+    } · ${report?.period_label ?? ''} · ${entityCurrency || 'CAD'}`
 
   const printStatement = () => {
     window.print()
@@ -178,6 +197,8 @@ export function ReportsPage({ forcedType }: { forcedType?: 'income_statement' | 
           <p className="statement-kicker">{entityCode ?? 'Entity'}</p>
           <h1 className="statement-cover">{cover}</h1>
           <p className="print-hide">Click a line to drill into the binder working paper.</p>
+          {report?.pack_disclaimer && <p className="pack-disclaimer">{report.pack_disclaimer}</p>}
+          {report?.accounting_basis && <p className="hint print-only">{report.accounting_basis}</p>}
         </div>
         <div className="toolbar print-hide">
           <button className="btn" onClick={() => void api.exportStatements(filters)} disabled={loading}>
@@ -194,9 +215,10 @@ export function ReportsPage({ forcedType }: { forcedType?: 'income_statement' | 
           <select className="select" value={reportType} onChange={(e) => setReportType(e.target.value)}>
             <option value="income_statement">Profit & Loss</option>
             <option value="balance_sheet">Balance Sheet</option>
+            <option value="equity">Equity</option>
           </select>
         )}
-        {activeType !== 'balance_sheet' && (
+        {activeType !== 'balance_sheet' && activeType !== 'equity' && (
           <select className="select" value={reportPeriod} onChange={(e) => setReportPeriod(e.target.value)}>
             <option value="monthly">Month</option>
             <option value="quarterly">Quarter</option>
@@ -236,7 +258,7 @@ export function ReportsPage({ forcedType }: { forcedType?: 'income_statement' | 
         </label>
         <label className="btn ghost">
           <input type="checkbox" checked={compareBudget} onChange={(e) => setCompareBudget(e.target.checked)} />
-          Budget
+          Budget (illustrative)
         </label>
         <label className="btn ghost">
           <input type="checkbox" checked={showRefs} onChange={(e) => setShowRefs(e.target.checked)} />
@@ -250,6 +272,14 @@ export function ReportsPage({ forcedType }: { forcedType?: 'income_statement' | 
 
       {error && <div className="error">{error}</div>}
 
+      {diagnostics && diagnostics.plugs.length > 0 && (
+        <div className={`banner ${diagnostics.can_print ? 'ok' : 'warn'}`}>
+          {diagnostics.can_print
+            ? 'Pack is printable'
+            : `Statement will not balance — ${diagnostics.plugs.map((p) => p.title).join('; ')}`}
+        </div>
+      )}
+
       {report?.fx_missing && (
         <div className="banner warn">
           Missing FX rates ({(report.fx_missing_pairs || []).join(', ') || 'pair unknown'}). Amounts in those
@@ -262,6 +292,14 @@ export function ReportsPage({ forcedType }: { forcedType?: 'income_statement' | 
           {report.is_balanced
             ? `In balance · Assets = liabilities & equity (${report.currency})`
             : `Out of balance by ${money(report.balance_difference, report.currency)}`}
+        </div>
+      )}
+
+      {report?.report_type === 'equity' && report.is_balanced != null && (
+        <div className={`banner ${report.is_balanced ? 'ok' : 'warn'}`}>
+          {report.is_balanced
+            ? 'Closing equity ties to the balance sheet'
+            : `Balance sheet is out of balance by ${money(report.balance_difference, report.currency)}`}
         </div>
       )}
 
@@ -383,6 +421,23 @@ export function ReportsPage({ forcedType }: { forcedType?: 'income_statement' | 
               </tbody>
             </table>
           </div>
+        </section>
+      )}
+
+      {report?.notes && report.notes.length > 0 && (
+        <section className="panel statement-notes">
+          <div className="panel-header">
+            <h2>Notes</h2>
+            <span className="hint">{report.accounting_basis}</span>
+          </div>
+          <ol className="notes-list">
+            {report.notes.map((note) => (
+              <li key={note.heading}>
+                <strong>{note.heading}.</strong> {note.body}
+              </li>
+            ))}
+          </ol>
+          {report.pack_disclaimer && <p className="pack-disclaimer">{report.pack_disclaimer}</p>}
         </section>
       )}
 

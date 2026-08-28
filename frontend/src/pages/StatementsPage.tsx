@@ -3,24 +3,29 @@ import { useSearchParams } from 'react-router-dom'
 import { ReportsPage } from './ReportsPage'
 import { BudgetPage, ExpensesPage, SalesPage } from './OpsViewsPage'
 import { AnalyticsPage } from './AnalyticsPage'
+import { TrialBalancePage } from './TrialBalancePage'
 import { useEngagement } from '../period/PeriodContext'
 
 const PRIMARY = [
   { id: 'pnl', label: 'Profit & Loss' },
   { id: 'bs', label: 'Balance Sheet' },
+  { id: 'equity', label: 'Equity' },
+  { id: 'tb', label: 'Trial balance' },
 ] as const
 
 const MORE = [
   { id: 'analytics', label: 'Analytics' },
   { id: 'sales', label: 'Sales' },
   { id: 'expenses', label: 'Expenses' },
-  { id: 'budget', label: 'Budget' },
+  { id: 'budget', label: 'Budget (illustrative)' },
 ] as const
 
 type TabId = (typeof PRIMARY)[number]['id'] | (typeof MORE)[number]['id']
 
 function normalizeTab(tabParam: string | null, typeParam: string | null): TabId {
   if (tabParam === 'bs' || typeParam === 'balance_sheet') return 'bs'
+  if (tabParam === 'equity' || typeParam === 'equity') return 'equity'
+  if (tabParam === 'tb' || typeParam === 'trial_balance') return 'tb'
   if (tabParam && MORE.some((t) => t.id === tabParam)) return tabParam as TabId
   return 'pnl'
 }
@@ -43,6 +48,8 @@ export function StatementsPage() {
     p.set('month', String(month))
     if (next === 'bs') p.set('type', 'balance_sheet')
     else if (next === 'pnl') p.set('type', 'income_statement')
+    else if (next === 'equity') p.set('type', 'equity')
+    else if (next === 'tb') p.set('type', 'trial_balance')
     else p.delete('type')
     setParams(p, { replace: true })
   }
@@ -52,7 +59,9 @@ export function StatementsPage() {
     if (tab === 'sales') return <SalesPage embedded />
     if (tab === 'expenses') return <ExpensesPage embedded />
     if (tab === 'budget') return <BudgetPage embedded />
-    return <ReportsPage forcedType={tab === 'bs' ? 'balance_sheet' : 'income_statement'} />
+    if (tab === 'tb') return <TrialBalancePage />
+    const type = tab === 'bs' ? 'balance_sheet' : tab === 'equity' ? 'equity' : 'income_statement'
+    return <ReportsPage forcedType={type} />
   }, [tab])
 
   return (

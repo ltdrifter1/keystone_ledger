@@ -33,7 +33,9 @@ def test_dashboard_and_income_statement():
     assert len(body["kpis"]) >= 5
     assert len(body["cash_by_account"]) >= 1
 
-    report = client.get("/api/reports/income-statement?period=ytd")
+    entities = {e["code"]: e for e in client.get("/api/entities").json()}
+    can_id = entities["CAN"]["id"]
+    report = client.get(f"/api/reports/income-statement?period=ytd&entity_id={can_id}")
     assert report.status_code == 200
     assert report.json()["title"] == "Profit & Loss"
     assert len(report.json()["lines"]) > 0

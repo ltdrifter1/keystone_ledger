@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 
 class ReportFilter(BaseModel):
     report_type: str = "income_statement"
-    # income_statement | balance_sheet | cash_flow
+    # income_statement | balance_sheet | equity | trial_balance
     entity_ids: Optional[list[int]] = None
     department_ids: Optional[list[int]] = None
     scenario_id: int = 1
@@ -29,6 +29,20 @@ class ReportFilter(BaseModel):
     materiality_amount: Optional[Decimal] = None
     materiality_pct: Optional[Decimal] = None
     include_zero_lines: bool = False
+
+
+class ReportingNote(BaseModel):
+    heading: str
+    body: str
+
+
+class StatementPlug(BaseModel):
+    key: str
+    title: str
+    detail: str
+    amount: Optional[Decimal] = None
+    href: Optional[str] = None
+    blocking: bool = True
 
 
 class ReportLine(BaseModel):
@@ -80,6 +94,9 @@ class ReportOut(BaseModel):
     balance_difference: Optional[Decimal] = None
     fx_missing: bool = False
     fx_missing_pairs: list[str] = Field(default_factory=list)
+    accounting_basis: Optional[str] = None
+    notes: list["ReportingNote"] = Field(default_factory=list)
+    pack_disclaimer: Optional[str] = None
 
 
 class FluxItem(BaseModel):
@@ -115,6 +132,69 @@ class AnalyticsPack(BaseModel):
     flux: list[FluxItem] = Field(default_factory=list)
     statements: list[ReportOut] = Field(default_factory=list)
     generated_at: str
+    budget_is_illustrative: bool = False
+    notes: list[ReportingNote] = Field(default_factory=list)
+    pack_disclaimer: Optional[str] = None
+    can_print: bool = False
+
+
+class TrialBalanceRow(BaseModel):
+    account_id: Optional[int] = None
+    account_code: str
+    account_name: str
+    account_type: str
+    statement: Optional[str] = None
+    line_code: Optional[str] = None
+    line_label: Optional[str] = None
+    mapped: bool = False
+    debit: Decimal = Decimal("0")
+    credit: Decimal = Decimal("0")
+    amount: Decimal = Decimal("0")
+    synthetic: bool = False
+    exception: Optional[str] = None
+
+
+class TrialBalanceOut(BaseModel):
+    title: str = "Trial Balance"
+    cover_title: Optional[str] = None
+    entity_name: Optional[str] = None
+    period_label: Optional[str] = None
+    currency: str
+    as_of_date: date
+    accounting_basis: Optional[str] = None
+    rows: list[TrialBalanceRow] = Field(default_factory=list)
+    total_debit: Decimal = Decimal("0")
+    total_credit: Decimal = Decimal("0")
+    unmapped_count: int = 0
+    uncategorized_count: int = 0
+    uncategorized_amount: Decimal = Decimal("0")
+    is_complete: bool = False
+    notes: list[ReportingNote] = Field(default_factory=list)
+    generated_at: str
+
+
+class StatementDiagnostics(BaseModel):
+    entity_id: int
+    entity_code: Optional[str] = None
+    entity_name: Optional[str] = None
+    period_label: str
+    currency: str
+    accounting_basis: Optional[str] = None
+    is_balanced: bool = False
+    balance_difference: Optional[Decimal] = None
+    fx_missing: bool = False
+    fx_missing_pairs: list[str] = Field(default_factory=list)
+    uncategorized_count: int = 0
+    uncategorized_amount: Decimal = Decimal("0")
+    unmapped_count: int = 0
+    unmapped_codes: list[str] = Field(default_factory=list)
+    cashbook_journals_count: int = 0
+    plugs: list[StatementPlug] = Field(default_factory=list)
+    can_print: bool = False
+    notes: list[ReportingNote] = Field(default_factory=list)
+    pack_disclaimer: Optional[str] = None
+    statements_href: str
+    trial_balance_href: str
 
 
 

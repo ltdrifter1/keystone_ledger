@@ -158,6 +158,7 @@ def test_usa_trade_ar_excludes_interco():
 def test_analytics_pack_omits_cash_flow():
     db = SessionLocal()
     try:
+        can, _usa = _entities(db)
         pack = build_analytics_pack(
             db,
             ReportFilter(
@@ -167,9 +168,14 @@ def test_analytics_pack_omits_cash_flow():
                 month=7,
                 scenario_id=1,
                 reporting_currency="CAD",
+                entity_ids=[can.id],
             ),
         )
-        assert {s.report_type for s in pack.statements} == {"income_statement", "balance_sheet"}
+        assert {s.report_type for s in pack.statements} == {
+            "income_statement",
+            "balance_sheet",
+            "equity",
+        }
         assert all(s.report_type != "cash_flow" for s in pack.statements)
     finally:
         db.close()

@@ -34,7 +34,8 @@ def test_engagement_home_engine_entity_scoped():
         assert home["statements_href"].startswith("/statements?")
         assert isinstance(home["queue"], list)
         assert len(home["queue"]) >= 1
-        assert "banks_total" in home["progress"]
+        assert "can_print" in home["progress"]
+        assert "statements_balanced" in home["progress"]
         for item in home["queue"]:
             assert item["href"].startswith("/")
             assert "/close?" not in item["href"]

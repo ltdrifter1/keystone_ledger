@@ -158,6 +158,10 @@ export function HomePage() {
         <span>
           Cash WP <strong>{p.cash_ready ? (journalLed ? 'N/A' : 'ready') : 'open'}</strong>
         </span>
+        <span className="home-status-sep" />
+        <span>
+          Pack <strong>{p.can_print ? 'printable' : 'blocked'}</strong>
+        </span>
       </div>
 
       {next && (
