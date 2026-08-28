@@ -47,6 +47,8 @@ def create_journal(
             source_transaction_id=payload.source_transaction_id,
             currency=payload.currency or "",
             scenario_id=payload.scenario_id,
+            post_close=payload.post_close,
+            reverse_next_month=payload.reverse_next_month,
         )
         db.commit()
         loaded = db.get(Transaction, txn.id)

@@ -19,6 +19,7 @@ from app.models.domain import (
     Transaction,
     TransactionSplit,
     WorkingPaperDocument,
+    EntityPeriodLock,
 )
 
 __all__ = [
@@ -40,4 +41,5 @@ __all__ = [
     "Transaction",
     "TransactionSplit",
     "WorkingPaperDocument",
+    "EntityPeriodLock",
 ]

@@ -286,7 +286,13 @@ class WorkingPaperDocument(Base):
 
     __tablename__ = "working_paper_documents"
     __table_args__ = (
-        UniqueConstraint("period_year", "period_month", "template_key", name="uq_wp_doc_period_key"),
+        UniqueConstraint(
+            "period_year",
+            "period_month",
+            "template_key",
+            "entity_id",
+            name="uq_wp_doc_period_key_entity",
+        ),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -303,3 +309,22 @@ class WorkingPaperDocument(Base):
     reviewer_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     updated_by: Mapped[str] = mapped_column(String(64), default="controller")
+    entity_id: Mapped[Optional[int]] = mapped_column(ForeignKey("dim_entity.id"), nullable=True, index=True)
+
+
+class EntityPeriodLock(Base):
+    """Month-end GL lock for one company. Bank recs stay per-account; this freezes the books."""
+
+    __tablename__ = "entity_period_locks"
+    __table_args__ = (
+        UniqueConstraint("entity_id", "period_year", "period_month", name="uq_entity_period_lock"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    entity_id: Mapped[int] = mapped_column(ForeignKey("dim_entity.id"), index=True)
+    period_year: Mapped[int] = mapped_column(Integer, index=True)
+    period_month: Mapped[int] = mapped_column(Integer, index=True)
+    status: Mapped[str] = mapped_column(String(32), default="locked", index=True)  # locked
+    locked_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    locked_by: Mapped[str] = mapped_column(String(64), default="controller")
+    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)

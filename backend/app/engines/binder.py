@@ -16,24 +16,29 @@ from app.engines.drilldown import drill_report_line
 from app.engines.reporting import build_report
 from app.engines.schedules import build_wp_schedule
 from app.engines.working_papers import get_template, list_templates
-from app.models import Attachment, DimAccount, WorkingPaperDocument
+from app.models import Attachment, DimAccount, DimEntity, WorkingPaperDocument
 from app.schemas.reports import DrillRequest, ReportFilter
 
 
-def _ensure_doc(db: Session, year: int, month: int, key: str) -> WorkingPaperDocument:
-    doc = db.scalar(
-        select(WorkingPaperDocument).where(
-            WorkingPaperDocument.period_year == year,
-            WorkingPaperDocument.period_month == month,
-            WorkingPaperDocument.template_key == key,
-        )
+def _ensure_doc(db: Session, year: int, month: int, key: str, entity_id: int | None) -> WorkingPaperDocument:
+    entity_id = _resolve_entity_id(db, entity_id)
+    q = select(WorkingPaperDocument).where(
+        WorkingPaperDocument.period_year == year,
+        WorkingPaperDocument.period_month == month,
+        WorkingPaperDocument.template_key == key,
     )
+    if entity_id is not None:
+        q = q.where(WorkingPaperDocument.entity_id == entity_id)
+    else:
+        q = q.where(WorkingPaperDocument.entity_id.is_(None))
+    doc = db.scalar(q)
     if doc:
         return doc
     doc = WorkingPaperDocument(
         period_year=year,
         period_month=month,
         template_key=key,
+        entity_id=entity_id,
         status="open",
     )
     db.add(doc)
@@ -66,6 +71,20 @@ def _attachments_payload(db: Session, doc_id: int | None) -> list[dict]:
     ]
 
 
+def _resolve_entity_id(db: Session, entity_id: int | None) -> int | None:
+    if entity_id is not None:
+        return entity_id
+    ent = db.scalar(select(DimEntity).order_by(DimEntity.id).limit(1))
+    return ent.id if ent else None
+
+
+def _entity_currency(db: Session, entity_id: int | None) -> str:
+    if entity_id is None:
+        return "CAD"
+    ent = db.get(DimEntity, entity_id)
+    return (ent.functional_currency if ent else None) or "CAD"
+
+
 def assert_segregation(preparer: str | None, reviewer: str | None) -> None:
     prep = (preparer or "").strip().upper()
     rev = (reviewer or "").strip().upper()
@@ -85,6 +104,7 @@ def _primary_line_code(template) -> str:
 
 
 def _report_filters(
+    db: Session,
     template,
     year: int,
     month: int,
@@ -93,6 +113,7 @@ def _report_filters(
     end = period_end(year, month)
     entity_ids = [entity_id] if entity_id is not None else None
     consolidate = entity_id is None
+    ccy = _entity_currency(db, entity_id)
     if template.statement == "balance_sheet":
         return ReportFilter(
             report_type="balance_sheet",
@@ -100,7 +121,7 @@ def _report_filters(
             year=year,
             month=month,
             scenario_id=1,
-            reporting_currency="CAD",
+            reporting_currency=ccy,
             consolidate=consolidate,
             entity_ids=entity_ids,
         )
@@ -112,19 +133,21 @@ def _report_filters(
         date_to=end,
         as_of_date=end,
         scenario_id=1,
-        reporting_currency="CAD",
+        reporting_currency=ccy,
         consolidate=consolidate,
         entity_ids=entity_ids,
     )
 
 
-def _load_docs(db: Session, year: int, month: int) -> dict[str, WorkingPaperDocument]:
-    rows = db.scalars(
-        select(WorkingPaperDocument).where(
-            WorkingPaperDocument.period_year == year,
-            WorkingPaperDocument.period_month == month,
-        )
-    ).all()
+def _load_docs(db: Session, year: int, month: int, entity_id: int | None = None) -> dict[str, WorkingPaperDocument]:
+    entity_id = _resolve_entity_id(db, entity_id)
+    q = select(WorkingPaperDocument).where(
+        WorkingPaperDocument.period_year == year,
+        WorkingPaperDocument.period_month == month,
+    )
+    if entity_id is not None:
+        q = q.where(WorkingPaperDocument.entity_id == entity_id)
+    rows = db.scalars(q).all()
     return {r.template_key: r for r in rows}
 
 
@@ -160,7 +183,7 @@ def _statement_amount_for_template(
     entity_id: int | None = None,
 ) -> tuple[str, Decimal, str | None]:
     """Return (line_code, amount, wp_ref from report)."""
-    filters = _report_filters(template, year, month, entity_id=entity_id)
+    filters = _report_filters(db, template, year, month, entity_id=entity_id)
     report = build_report(db, filters)
     by_code = {line.line_code: line for line in report.lines}
     for code in template.line_codes:
@@ -179,7 +202,7 @@ def _statement_amount_for_template(
 
 
 def build_binder_index(db: Session, year: int, month: int, entity_id: int | None = None) -> dict:
-    docs = _load_docs(db, year, month)
+    docs = _load_docs(db, year, month, entity_id=entity_id)
     close = month_close_overview(db, year, month)
     packs = close["packs"]
     if entity_id is not None:
@@ -200,7 +223,7 @@ def build_binder_index(db: Session, year: int, month: int, entity_id: int | None
         stmt = template.statement
         if stmt not in report_cache:
             report_cache[stmt] = build_report(
-                db, _report_filters(template, year, month, entity_id=entity_id)
+                db, _report_filters(db, template, year, month, entity_id=entity_id)
             )
         report = report_cache[stmt]
         by_code = {line.line_code: line for line in report.lines}
@@ -258,7 +281,7 @@ def build_binder_index(db: Session, year: int, month: int, entity_id: int | None
                         db,
                         DrillRequest(
                             line_code=line_code,
-                            filters=_report_filters(tmpl, year, month, entity_id=entity_id),
+                            filters=_report_filters(db, tmpl, year, month, entity_id=entity_id),
                         ),
                     )
                     is_tied = drill.is_tied
@@ -279,7 +302,7 @@ def build_binder_index(db: Session, year: int, month: int, entity_id: int | None
                 "purpose": tmpl.purpose,
                 "line_code": line_code,
                 "statement_amount": float(amount),
-                "currency": "CAD",
+                "currency": _entity_currency(db, entity_id),
                 "is_tied": is_tied,
                 "difference": difference,
                 "status": status,
@@ -351,8 +374,8 @@ def get_binder_document(
     if not index_row:
         raise ValueError(f"Working paper '{key}' not in binder")
 
-    docs = _load_docs(db, year, month)
-    doc = docs.get(key) or _ensure_doc(db, year, month, key)
+    docs = _load_docs(db, year, month, entity_id=entity_id)
+    doc = docs.get(key) or _ensure_doc(db, year, month, key, entity_id)
     checked = _checked_list(doc)
     cash_schedule = binder.get("cash_schedule") if key == "cash" else None
     wp_schedule = None if key == "cash" else build_wp_schedule(
@@ -361,7 +384,7 @@ def get_binder_document(
     if cash_schedule:
         checked = sorted(set(checked) | set(cash_schedule["auto_checked"]))
 
-    filters = _report_filters(tmpl, year, month, entity_id=entity_id)
+    filters = _report_filters(db, tmpl, year, month, entity_id=entity_id)
     line_code = index_row["line_code"]
     drill_payload = None
     # For cash, drill is secondary — bank schedule is the primary evidence
@@ -462,25 +485,15 @@ def upsert_binder_document(
     if not tmpl:
         raise ValueError(f"Unknown working paper '{key}'")
 
-    doc = db.scalar(
-        select(WorkingPaperDocument).where(
-            WorkingPaperDocument.period_year == year,
-            WorkingPaperDocument.period_month == month,
-            WorkingPaperDocument.template_key == key,
-        )
-    )
-    if not doc:
-        doc = WorkingPaperDocument(
-            period_year=year,
-            period_month=month,
-            template_key=key,
-            status="open",
-        )
-        db.add(doc)
+    entity_id = _resolve_entity_id(db, entity_id)
+    doc = _ensure_doc(db, year, month, key, entity_id)
 
     now = datetime.utcnow()
     cash_schedule = (
         build_cash_recon_schedule(db, year, month, entity_id=entity_id) if key == "cash" else None
+    )
+    wp_schedule = None if key == "cash" else build_wp_schedule(
+        db, key=key, year=year, month=month, entity_id=entity_id
     )
 
     if checked is not None:
@@ -520,6 +533,11 @@ def upsert_binder_document(
             preparer=next_preparer or (actor if intended_status == "prepared" else doc.preparer),
             reviewer=next_reviewer or (actor if intended_status == "reviewed" else doc.reviewer),
         )
+    elif intended_status in ("prepared", "reviewed") and wp_schedule:
+        ready = wp_schedule.get("can_prepare") if intended_status == "prepared" else wp_schedule.get("can_review")
+        if not ready:
+            msgs = wp_schedule.get("gate_messages") or ["Working paper is not ready to sign"]
+            raise ValueError("; ".join(str(m) for m in msgs))
 
     if intended_status == "reviewed":
         assert_segregation(

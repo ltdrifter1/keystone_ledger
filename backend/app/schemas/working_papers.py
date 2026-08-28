@@ -157,6 +157,8 @@ class CashReconSchedule(BaseModel):
     gate_messages: list[str] = Field(default_factory=list)
     auto_checked: list[int] = Field(default_factory=list)
     close_status: str = "in_progress"
+    journal_led: bool = False
+    not_applicable: bool = False
 
 
 class BinderDocumentOut(BinderDocumentIndex):

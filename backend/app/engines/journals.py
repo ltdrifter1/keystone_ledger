@@ -31,10 +31,16 @@ def bank_amount_from_debit_credit(account: DimAccount, debit: Decimal, credit: D
     return net_debit
 
 
-def _next_voucher(db: Session, year: int, month: int) -> str:
-    like = f"J-{year}-{month:02d}-%"
+def _next_voucher(db: Session, year: int, month: int, *, prefix: str = "J") -> str:
+    like = f"{prefix}-{year}-{month:02d}-%"
     count = db.scalar(select(func.count()).where(Transaction.reference.like(like))) or 0
-    return f"J-{year}-{month:02d}-{int(count) + 1:04d}"
+    return f"{prefix}-{year}-{month:02d}-{int(count) + 1:04d}"
+
+
+def _next_month(txn_date: date) -> date:
+    if txn_date.month == 12:
+        return date(txn_date.year + 1, 1, 1)
+    return date(txn_date.year, txn_date.month + 1, 1)
 
 
 def post_journal(
@@ -54,12 +60,18 @@ def post_journal(
     counter_entity_id: int | None = None,
     counterparty: str | None = None,
     external_id: str | None = None,
+    post_close: bool = False,
+    reverse_next_month: bool = False,
 ) -> Transaction:
     entity = db.get(DimEntity, entity_id)
     if not entity:
         raise ValueError("Entity not found")
     if len(lines) < 2:
         raise ValueError("Journal needs at least two lines")
+
+    from app.engines.entity_close import assert_entity_month_open
+
+    assert_entity_month_open(db, entity_id, txn_date, allow_post_close=post_close)
 
     parsed: list[tuple[DimAccount, Decimal, Decimal, Decimal, str | None]] = []
     total_dr = Decimal("0")
@@ -88,8 +100,11 @@ def post_journal(
         raise ValueError("Journal total cannot be zero")
 
     year, month = txn_date.year, txn_date.month
-    voucher = (reference or "").strip() or _next_voucher(db, year, month)
+    prefix = "PCA" if post_close else "J"
+    voucher = (reference or "").strip() or _next_voucher(db, year, month, prefix=prefix)
     note_parts = [p for p in (memo, f"WP {working_paper_key}" if working_paper_key else None) if p]
+    if post_close:
+        note_parts.insert(0, "Post-close adj")
     parent_memo = " · ".join(note_parts) or None
     if source_transaction_id:
         parent_memo = ((parent_memo + " · ") if parent_memo else "") + f"from txn #{source_transaction_id}"
@@ -107,11 +122,11 @@ def post_journal(
         account_id=None,
         scenario_id=scenario_id,
         counter_entity_id=counter_entity_id,
-        source_type="journal",
+        source_type="post_close_adj" if post_close else "journal",
         status="categorized",
         is_split=True,
         date_key=ensure_date_dimension(db, txn_date),
-        import_batch_id=f"journal:{working_paper_key or 'adj'}:{year}-{month:02d}",
+        import_batch_id=f"journal:{working_paper_key or ('pca' if post_close else 'adj')}:{year}-{month:02d}",
         external_id=external_id,
         created_by=actor,
         updated_by=actor,
@@ -144,9 +159,37 @@ def post_journal(
             "debit": str(total_dr),
             "credit": str(total_cr),
             "lines": len(parsed),
+            "post_close": post_close,
         },
     )
     db.flush()
+    if reverse_next_month:
+        rev_date = _next_month(txn_date)
+        post_journal(
+            db,
+            txn_date=rev_date,
+            entity_id=entity_id,
+            description=f"Reverse {voucher}",
+            lines=[
+                {
+                    "account_id": account.id,
+                    "debit": credit,
+                    "credit": debit,
+                    "memo": line_memo,
+                }
+                for account, debit, credit, _amt, line_memo in parsed
+            ],
+            actor=actor,
+            memo=f"Auto-reverse of {voucher}",
+            working_paper_key=working_paper_key,
+            currency=currency or entity.functional_currency,
+            scenario_id=scenario_id,
+            reference=f"R-{voucher}",
+            counter_entity_id=counter_entity_id,
+            counterparty=counterparty,
+            post_close=False,
+            reverse_next_month=False,
+        )
     return parent
 
 
@@ -219,7 +262,10 @@ def list_journals(
     entity_id: int | None = None,
     working_paper_key: str | None = None,
 ) -> list[dict]:
-    q = select(Transaction).where(Transaction.source_type == "journal", Transaction.status != "void")
+    q = select(Transaction).where(
+        Transaction.source_type.in_(("journal", "post_close_adj")),
+        Transaction.status != "void",
+    )
     if entity_id:
         q = q.where(Transaction.entity_id == entity_id)
     if year:

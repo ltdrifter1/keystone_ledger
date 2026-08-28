@@ -617,6 +617,17 @@ export type EngagementHome = {
   entity_id?: number | null
   entity_code?: string | null
   entity_name?: string | null
+  journal_led?: boolean
+  month_lock?: {
+    entity_id: number
+    period_year: number
+    period_month: number
+    is_locked: boolean
+    locked_at?: string | null
+    locked_by?: string | null
+    notes?: string | null
+    journal_led?: boolean
+  } | null
   progress: {
     banks_total: number
     banks_locked: number
@@ -628,6 +639,10 @@ export type EngagementHome = {
     cash_ready: boolean
     feeds_connected?: number
     feeds_pending?: number
+    unmatched_ic?: number
+    journals?: number
+    month_locked?: boolean
+    journal_led?: boolean
   }
   queue: Array<{
     key: string
@@ -900,6 +915,35 @@ export const api = {
     request<ClosePackStatus>(`/close-pack/${reconId}/lock`, { method: 'POST' }),
   lockMonth: (year: number, month: number) =>
     request<MonthCloseOverview>(`/close-pack/month/lock?year=${year}&month=${month}`, { method: 'POST' }),
+  entityPeriodLock: (entityId: number, year: number, month: number) =>
+    request<{
+      entity_id: number
+      period_year: number
+      period_month: number
+      is_locked: boolean
+      locked_at?: string | null
+      locked_by?: string | null
+      notes?: string | null
+      journal_led?: boolean
+    }>(`/period-locks?entity_id=${entityId}&year=${year}&month=${month}`),
+  lockEntityMonth: (entityId: number, year: number, month: number, notes?: string) => {
+    const qs = new URLSearchParams({
+      entity_id: String(entityId),
+      year: String(year),
+      month: String(month),
+    })
+    if (notes) qs.set('notes', notes)
+    return request<{
+      entity_id: number
+      period_year: number
+      period_month: number
+      is_locked: boolean
+      locked_at?: string | null
+      locked_by?: string | null
+      notes?: string | null
+      journal_led?: boolean
+    }>(`/period-locks/lock?${qs}`, { method: 'POST' })
+  },
   workingPapers: () =>
     request<{ templates: WorkingPaperTemplate[]; count: number }>('/working-papers'),
   workingPaper: (key: string) => request<WorkingPaperTemplate>(`/working-papers/${key}`),
@@ -950,6 +994,8 @@ export const api = {
     working_paper_key?: string
     source_transaction_id?: number
     currency?: string
+    post_close?: boolean
+    reverse_next_month?: boolean
   }) =>
     request<JournalVoucher>('/journals', {
       method: 'POST',
@@ -1206,6 +1252,18 @@ export type WpSchedule = {
   }>
   unmatched_count?: number
   matched_count?: number
+  ic_mirror?: {
+    entity_code?: string | null
+    counter_entity_code?: string | null
+    ours: { ar: number; ap: number; ic: number }
+    theirs: { ar: number; ap: number; ic: number }
+    ours_net: number
+    theirs_net: number
+    difference: number
+    is_mirrored: boolean
+    currency: string
+    period_label: string
+  } | null
   unmatched?: Array<{
     transaction_id: number
     txn_date: string

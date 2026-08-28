@@ -629,7 +629,7 @@ function WpLiveSchedule({
       : schedule.kind === 'rollforward'
         ? 'Rollforward'
         : schedule.kind === 'intercompany'
-          ? 'Intercompany listing'
+          ? 'Monthly intercompany rec'
           : 'Lead schedule'
   return (
     <>
@@ -715,6 +715,37 @@ function WpLiveSchedule({
                 <td className="num">{money(schedule.closing ?? 0, currency)}</td>
               </tr>
             </tfoot>
+          </table>
+        </div>
+      )}
+      {schedule.kind === 'intercompany' && schedule.ic_mirror && (
+        <div className="table-wrap" style={{ marginBottom: '0.75rem' }}>
+          <table className="data cash-recon-table">
+            <thead>
+              <tr>
+                <th>Monthly IC mirror ({schedule.ic_mirror.currency})</th>
+                <th className="num">{schedule.ic_mirror.entity_code} AR</th>
+                <th className="num">{schedule.ic_mirror.entity_code} AP</th>
+                <th className="num">{schedule.ic_mirror.counter_entity_code} net</th>
+                <th className="num">Difference</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>
+                  {schedule.ic_mirror.is_mirrored ? (
+                    <span className="badge ok">mirrored</span>
+                  ) : (
+                    <span className="badge open">off</span>
+                  )}
+                  <div className="hint">AR/AP legs in CAD · FX tolerance ±50 or 2%</div>
+                </td>
+                <td className="num">{money(schedule.ic_mirror.ours.ar, schedule.ic_mirror.currency)}</td>
+                <td className="num">{money(schedule.ic_mirror.ours.ap, schedule.ic_mirror.currency)}</td>
+                <td className="num">{money(schedule.ic_mirror.theirs_net, schedule.ic_mirror.currency)}</td>
+                <td className="num">{money(schedule.ic_mirror.difference, schedule.ic_mirror.currency)}</td>
+              </tr>
+            </tbody>
           </table>
         </div>
       )}

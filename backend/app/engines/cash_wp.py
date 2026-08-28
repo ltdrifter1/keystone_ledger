@@ -7,9 +7,11 @@ from decimal import Decimal
 from sqlalchemy.orm import Session
 
 from app.engines.close_pack import month_close_overview
+from app.engines.entity_close import is_journal_led_entity
 from app.engines.fx import translate_amount
 from app.engines.reconciliation import calculated_book_balance
 from app.engines.reporting import build_report
+from app.models import DimEntity
 from app.schemas.reports import ReportFilter
 
 
@@ -34,7 +36,8 @@ def build_cash_recon_schedule(
     """
     end = _period_end(year, month)
     close = month_close_overview(db, year, month)
-    reporting_currency = "CAD"
+    entity = db.get(DimEntity, entity_id) if entity_id else None
+    reporting_currency = (entity.functional_currency if entity else None) or "CAD"
     packs = close["packs"]
     if entity_id is not None:
         packs = [p for p in packs if p.get("entity_id") == entity_id]
@@ -163,37 +166,52 @@ def build_cash_recon_schedule(
     is_tied = all_bank_tied and gl_agrees
     can_prepare = all_ready_or_locked and all_bank_tied and gl_agrees
     can_review = all_locked and all_bank_tied and gl_agrees
-
+    not_applicable = False
     gate_messages: list[str] = []
-    if not banks_total:
-        gate_messages.append("No bank accounts for this entity")
-    if not all_started and banks_total:
-        not_started = [b["bank_account_name"] for b in banks if b["status"] == "not_started"]
-        gate_messages.append(f"Start recon for: {', '.join(str(n) for n in not_started)}")
-    untied_banks = [b["bank_account_name"] for b in banks if not b["is_tied"] and b["status"] != "not_started"]
-    if untied_banks:
-        gate_messages.append(f"Difference still open: {', '.join(str(n) for n in untied_banks)}")
-    if all_started and not all_ready_or_locked:
-        gate_messages.append("Resolve blocking exceptions so every bank is ready to lock")
-    if banks_total and not gl_agrees:
-        gate_messages.append(
-            f"BS cash ({float(gl_amount):,.2f} {reporting_currency}) ≠ sum of bank books "
-            f"({float(book_reporting_total):,.2f} {reporting_currency})"
-        )
-    if can_prepare and not can_review:
-        gate_messages.append("Lock all bank recons before review sign-off")
-
-    # Auto-check cash procedures when recon evidence supports them
     auto_checked: list[int] = []
-    if all_started:
-        auto_checked.append(0)  # pulled balances
-        auto_checked.append(1)  # statement ending obtained (started packs)
-    if all_bank_tied and all_ready_or_locked:
-        auto_checked.extend([2, 3])  # recon complete + uncleared investigated
-    if len(currencies) == 1 or all_started:
-        auto_checked.append(4)  # FX noted (single ccy or packs run with reporting)
-    if is_tied and all_ready_or_locked:
-        auto_checked.append(5)  # agrees to BS + close status
+    close_status = (
+        "locked" if all_locked else ("ready" if all_ready_or_locked and all_bank_tied else "in_progress")
+    )
+
+    journal_led = bool(entity_id) and is_journal_led_entity(db, entity_id)
+    if journal_led and abs(gl_amount) < Decimal("0.02"):
+        # Monthly rec: journal-led books with nil cash — bank desk is N/A this month
+        not_applicable = True
+        is_tied = True
+        can_prepare = True
+        can_review = True
+        gate_messages = [
+            "Cash recon is N/A for this monthly rec — journal-led books with nil cash."
+        ]
+        auto_checked = list(range(6))
+        close_status = "n_a"
+    else:
+        if not banks_total:
+            gate_messages.append("No bank accounts for this entity")
+        if not all_started and banks_total:
+            not_started = [b["bank_account_name"] for b in banks if b["status"] == "not_started"]
+            gate_messages.append(f"Start recon for: {', '.join(str(n) for n in not_started)}")
+        untied_banks = [b["bank_account_name"] for b in banks if not b["is_tied"] and b["status"] != "not_started"]
+        if untied_banks:
+            gate_messages.append(f"Difference still open: {', '.join(str(n) for n in untied_banks)}")
+        if all_started and not all_ready_or_locked:
+            gate_messages.append("Resolve blocking exceptions so every bank is ready to lock")
+        if banks_total and not gl_agrees:
+            gate_messages.append(
+                f"BS cash ({float(gl_amount):,.2f} {reporting_currency}) ≠ sum of bank books "
+                f"({float(book_reporting_total):,.2f} {reporting_currency})"
+            )
+        if can_prepare and not can_review:
+            gate_messages.append("Lock all bank recons before review sign-off")
+        if all_started:
+            auto_checked.append(0)
+            auto_checked.append(1)
+        if all_bank_tied and all_ready_or_locked:
+            auto_checked.extend([2, 3])
+        if len(currencies) == 1 or all_started:
+            auto_checked.append(4)
+        if is_tied and all_ready_or_locked:
+            auto_checked.append(5)
 
     return {
         "period_year": year,
@@ -202,6 +220,8 @@ def build_cash_recon_schedule(
         "period_end": end.isoformat(),
         "reporting_currency": reporting_currency,
         "entity_id": entity_id,
+        "journal_led": journal_led,
+        "not_applicable": not_applicable,
         "banks": banks,
         "gl_statement_amount": float(gl_amount),
         "banks_book_reporting_total": float(book_reporting_total),
@@ -221,9 +241,7 @@ def build_cash_recon_schedule(
         "can_review": can_review,
         "gate_messages": gate_messages,
         "auto_checked": sorted(set(auto_checked)),
-        "close_status": (
-            "locked" if all_locked else ("ready" if all_ready_or_locked and all_bank_tied else "in_progress")
-        ),
+        "close_status": close_status,
     }
 
 

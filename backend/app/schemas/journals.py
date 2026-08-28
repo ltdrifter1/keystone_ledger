@@ -22,6 +22,8 @@ class JournalCreate(BaseModel):
     source_transaction_id: Optional[int] = None
     currency: Optional[str] = None
     scenario_id: int = 1
+    post_close: bool = False
+    reverse_next_month: bool = False
 
 
 class JournalLineOut(BaseModel):
