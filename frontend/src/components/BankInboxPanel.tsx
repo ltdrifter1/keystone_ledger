@@ -31,8 +31,14 @@ function periodBounds(year: number, month: number) {
   }
 }
 
-function latestRate(rows: FxRate[], from: string, to: string, rateType: string) {
-  return rows.find((r) => r.from_currency === from && r.to_currency === to && r.rate_type === rateType)
+function latestRate(rows: FxRate[], from: string, to: string, rateType: string, asOf?: string) {
+  return rows.find(
+    (r) =>
+      r.from_currency === from &&
+      r.to_currency === to &&
+      r.rate_type === rateType &&
+      (!asOf || r.rate_date <= asOf),
+  )
 }
 
 export function BankInboxPanel({ year, month, entityId, entityCode, onChanged, onMessage }: Props) {
@@ -94,8 +100,8 @@ export function BankInboxPanel({ year, month, entityId, entityCode, onChanged, o
   const pendingFeeds = entityFeeds.filter((f) => f.status === 'connected' && f.pending_count > 0)
   const pendingTotal = pendingFeeds.reduce((n, f) => n + f.pending_count, 0)
 
-  const usdCadClose = latestRate(fx, 'USD', 'CAD', 'closing')
-  const usdCadAvg = latestRate(fx, 'USD', 'CAD', 'average')
+  const usdCadClose = latestRate(fx, 'USD', 'CAD', 'closing', bounds.date_to)
+  const usdCadAvg = latestRate(fx, 'USD', 'CAD', 'average', bounds.date_to)
 
   const afterChange = async (msg: string) => {
     await loadInbox()
