@@ -6,25 +6,32 @@ from datetime import date, datetime
 from decimal import Decimal
 
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.config import get_settings
 from app.engines.fx import translate_amount
 from app.engines.intercompany import account_is_ic_leg
 from app.engines.reporting import (
+    CASH_LINE_CODE,
+    CASH_XFER_CODE,
     CURRENT_EARNINGS_CODE,
     IC_LINE_CODE,
     TRADE_AP_CODE,
     TRADE_AR_CODE,
+    _as_of_date,
+    _cashbook_signed_amount,
+    _entity_banks,
     _iter_fact_lines,
     _period_bounds,
     _signed_amount,
+    _translate_closing,
     _ytd_filters,
     build_report,
     period_label,
+    use_cashbook_presentation,
 )
 from app.engines.working_papers import find_template
-from app.models import DimAccount, DimEntity, DimReportLayout
+from app.models import DimAccount, DimEntity, DimReportLayout, Transaction
 from app.schemas.reports import (
     DrillLine,
     DrillOut,
@@ -94,6 +101,137 @@ def _resolve_accounts(
     raise ValueError(f"Line '{line_code}' is not drillable")
 
 
+def _drill_cashbook_cash(
+    db: Session,
+    payload: DrillRequest,
+    *,
+    filters: ReportFilter,
+    reporting_currency: str,
+    line_label: str,
+    wp_ref: str | None,
+    statement_amount: Decimal,
+    accounts: dict[int, DimAccount],
+    entities: dict[int, DimEntity],
+) -> DrillOut:
+    as_of = _as_of_date(filters)
+    cash_acct = next((a for a in accounts.values() if a.code == "1000"), None)
+    cash_id = cash_acct.id if cash_acct else 0
+    detail: list[DrillLine] = []
+    detail_total = Decimal("0")
+
+    for bank in _entity_banks(db, filters.entity_ids):
+        opening = Decimal(bank.opening_balance)
+        if abs(opening) > Decimal("0.005"):
+            amount, _, _ = _translate_closing(
+                db,
+                amount=opening,
+                from_currency=bank.currency,
+                to_currency=reporting_currency,
+                as_of=as_of,
+            )
+            detail_total += amount
+            ent = entities.get(bank.entity_id)
+            detail.append(
+                DrillLine(
+                    transaction_id=-bank.id,
+                    txn_date=date(2000, 1, 1),
+                    description=f"Opening balance — {bank.name}",
+                    entity_id=bank.entity_id,
+                    entity_code=ent.code if ent else None,
+                    bank_account_name=bank.name,
+                    account_id=bank.gl_account_id or cash_id,
+                    account_code="OPEN",
+                    account_name="Opening balance",
+                    department_id=None,
+                    native_amount=opening,
+                    currency=bank.currency,
+                    reporting_amount=amount,
+                    signed_amount=amount,
+                    status="posted",
+                    is_reconciled=False,
+                )
+            )
+
+        txns = db.scalars(
+            select(Transaction)
+            .options(joinedload(Transaction.bank_account), joinedload(Transaction.entity))
+            .where(
+                Transaction.bank_account_id == bank.id,
+                Transaction.txn_date <= as_of,
+                Transaction.scenario_id == filters.scenario_id,
+                Transaction.status.notin_(["void", "excluded"]),
+            )
+        ).unique().all()
+        for txn in txns:
+            native = Decimal(txn.amount)
+            amount, _, _ = _translate_closing(
+                db,
+                amount=native,
+                from_currency=txn.currency,
+                to_currency=reporting_currency,
+                as_of=as_of,
+            )
+            detail_total += amount
+            acct = accounts.get(txn.account_id) if txn.account_id else cash_acct
+            ent = entities.get(txn.entity_id)
+            detail.append(
+                DrillLine(
+                    transaction_id=txn.id,
+                    txn_date=txn.txn_date,
+                    description=txn.description,
+                    entity_id=txn.entity_id,
+                    entity_code=ent.code if ent else (txn.entity.code if txn.entity else None),
+                    bank_account_name=bank.name,
+                    account_id=acct.id if acct else cash_id,
+                    account_code=acct.code if acct else "1000",
+                    account_name=acct.name if acct else "Cash",
+                    department_id=txn.department_id,
+                    native_amount=native,
+                    currency=txn.currency,
+                    reporting_amount=amount,
+                    signed_amount=amount,
+                    is_split=txn.is_split,
+                    split_memo=txn.memo,
+                    status=txn.status,
+                    is_reconciled=txn.is_reconciled,
+                )
+            )
+
+    detail.sort(key=lambda row: (row.txn_date, row.transaction_id, row.account_code))
+    difference = statement_amount - detail_total
+    tmpl = find_template(line_code=CASH_LINE_CODE)
+    template_snippet = None
+    if tmpl:
+        wp_ref = tmpl.wp_ref
+        template_snippet = WorkingPaperSnippet(
+            key=tmpl.key,
+            wp_ref=tmpl.wp_ref,
+            title=tmpl.title,
+            purpose=tmpl.purpose,
+            objective=tmpl.objective,
+            tie_out=tmpl.tie_out,
+            procedures=list(tmpl.procedures),
+            evidence=list(tmpl.evidence),
+        )
+    return DrillOut(
+        line_code=payload.line_code,
+        line_label=line_label,
+        wp_ref=wp_ref,
+        report_type=filters.report_type,
+        currency=reporting_currency,
+        filters=filters,
+        period_label=_period_label(filters),
+        statement_amount=statement_amount,
+        detail_total=detail_total,
+        difference=difference,
+        is_tied=abs(difference) < Decimal("0.02"),
+        row_count=len(detail),
+        lines=detail,
+        generated_at=datetime.utcnow().isoformat() + "Z",
+        template=template_snippet,
+    )
+
+
 def drill_report_line(db: Session, payload: DrillRequest) -> DrillOut:
     settings = get_settings()
     filters = payload.filters
@@ -121,6 +259,20 @@ def drill_report_line(db: Session, payload: DrillRequest) -> DrillOut:
     if report_line:
         line_label = report_line.line_label
         wp_ref = wp_ref or report_line.wp_ref
+
+    cashbook = use_cashbook_presentation(db, filters)
+    if cashbook and payload.line_code == CASH_LINE_CODE:
+        return _drill_cashbook_cash(
+            db,
+            payload,
+            filters=filters,
+            reporting_currency=reporting_currency,
+            line_label=line_label,
+            wp_ref=wp_ref,
+            statement_amount=statement_amount,
+            accounts=accounts,
+            entities=entities,
+        )
 
     is_current_earnings = payload.line_code == CURRENT_EARNINGS_CODE
     is_net_income_line = payload.line_code in ("NI", "NET_INCOME", CURRENT_EARNINGS_CODE) or (
@@ -199,6 +351,8 @@ def drill_report_line(db: Session, payload: DrillRequest) -> DrillOut:
             signed = reporting_amt
         elif ic_mode == "only" and acct.code == "1100":
             signed = -_signed_amount(acct, reporting_amt, "balance_sheet")
+        elif cashbook and sign_report_type == "balance_sheet":
+            signed = _cashbook_signed_amount(acct, reporting_amt, payload.line_code)
         else:
             signed = _signed_amount(acct, reporting_amt, sign_report_type)
         detail_total += signed
@@ -239,7 +393,11 @@ def drill_report_line(db: Session, payload: DrillRequest) -> DrillOut:
     is_tied = abs(difference) < Decimal("0.02")
 
     acct_codes = [accounts[i].code for i in account_ids if i in accounts]
-    tmpl = find_template(line_code=payload.line_code, account_codes=acct_codes, wp_ref=wp_ref)
+    tmpl = find_template(
+        line_code=payload.line_code,
+        account_codes=None if payload.line_code == CASH_XFER_CODE else acct_codes,
+        wp_ref=wp_ref,
+    )
     template_snippet = None
     if tmpl:
         wp_ref = tmpl.wp_ref

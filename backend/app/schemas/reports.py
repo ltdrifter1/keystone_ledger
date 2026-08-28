@@ -28,6 +28,7 @@ class ReportFilter(BaseModel):
     compare_budget: bool = False
     materiality_amount: Optional[Decimal] = None
     materiality_pct: Optional[Decimal] = None
+    include_zero_lines: bool = False
 
 
 class ReportLine(BaseModel):

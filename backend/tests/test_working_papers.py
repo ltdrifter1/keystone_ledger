@@ -49,7 +49,12 @@ def test_balance_sheet_uses_wp_refs():
     try:
         report = build_report(
             db,
-            ReportFilter(report_type="balance_sheet", scenario_id=1, reporting_currency="CAD"),
+            ReportFilter(
+                report_type="balance_sheet",
+                scenario_id=1,
+                reporting_currency="CAD",
+                include_zero_lines=True,
+            ),
         )
         by_code = {line.line_code: line for line in report.lines}
         assert "BS_CASH" in by_code
