@@ -14,9 +14,63 @@ from app.engines.cash_wp import build_cash_recon_schedule, cash_signoff_allowed
 from app.engines.close_pack import month_close_overview
 from app.engines.drilldown import drill_report_line
 from app.engines.reporting import build_report
+from app.engines.schedules import build_wp_schedule
 from app.engines.working_papers import get_template, list_templates
-from app.models import DimAccount, WorkingPaperDocument
+from app.models import Attachment, DimAccount, WorkingPaperDocument
 from app.schemas.reports import DrillRequest, ReportFilter
+
+
+def _ensure_doc(db: Session, year: int, month: int, key: str) -> WorkingPaperDocument:
+    doc = db.scalar(
+        select(WorkingPaperDocument).where(
+            WorkingPaperDocument.period_year == year,
+            WorkingPaperDocument.period_month == month,
+            WorkingPaperDocument.template_key == key,
+        )
+    )
+    if doc:
+        return doc
+    doc = WorkingPaperDocument(
+        period_year=year,
+        period_month=month,
+        template_key=key,
+        status="open",
+    )
+    db.add(doc)
+    db.flush()
+    return doc
+
+
+def _attachments_payload(db: Session, doc_id: int | None) -> list[dict]:
+    if not doc_id:
+        return []
+    rows = list(
+        db.scalars(
+            select(Attachment)
+            .where(
+                Attachment.entity_table == "working_paper_documents",
+                Attachment.entity_id == doc_id,
+            )
+            .order_by(Attachment.uploaded_at.desc())
+        )
+    )
+    return [
+        {
+            "id": r.id,
+            "filename": r.filename,
+            "content_type": r.content_type,
+            "uploaded_by": r.uploaded_by,
+            "uploaded_at": r.uploaded_at.isoformat() if r.uploaded_at else None,
+        }
+        for r in rows
+    ]
+
+
+def assert_segregation(preparer: str | None, reviewer: str | None) -> None:
+    prep = (preparer or "").strip().upper()
+    rev = (reviewer or "").strip().upper()
+    if prep and rev and prep == rev:
+        raise ValueError("Preparer and reviewer must be different people")
 
 
 def period_end(year: int, month: int) -> date:
@@ -194,21 +248,26 @@ def build_binder_index(db: Session, year: int, month: int, entity_id: int | None
             close_status = cash_schedule["close_status"]
         else:
             close_status = None
-            try:
-                drill = drill_report_line(
-                    db,
-                    DrillRequest(
-                        line_code=line_code,
-                        filters=_report_filters(tmpl, year, month, entity_id=entity_id),
-                    ),
-                )
-                is_tied = drill.is_tied
-                difference = float(drill.difference)
-                amount = Decimal(drill.statement_amount)
-                if drill.wp_ref:
-                    wp_ref = drill.wp_ref
-            except ValueError:
-                is_tied = True if amount == 0 else None
+            schedule = build_wp_schedule(db, key=tmpl.key, year=year, month=month, entity_id=entity_id)
+            if schedule:
+                is_tied = schedule["is_tied"]
+                difference = float(schedule.get("difference") or 0)
+            else:
+                try:
+                    drill = drill_report_line(
+                        db,
+                        DrillRequest(
+                            line_code=line_code,
+                            filters=_report_filters(tmpl, year, month, entity_id=entity_id),
+                        ),
+                    )
+                    is_tied = drill.is_tied
+                    difference = float(drill.difference)
+                    amount = Decimal(drill.statement_amount)
+                    if drill.wp_ref:
+                        wp_ref = drill.wp_ref
+                except ValueError:
+                    is_tied = True if amount == 0 else None
 
         documents.append(
             {
@@ -293,9 +352,12 @@ def get_binder_document(
         raise ValueError(f"Working paper '{key}' not in binder")
 
     docs = _load_docs(db, year, month)
-    doc = docs.get(key)
+    doc = docs.get(key) or _ensure_doc(db, year, month, key)
     checked = _checked_list(doc)
     cash_schedule = binder.get("cash_schedule") if key == "cash" else None
+    wp_schedule = None if key == "cash" else build_wp_schedule(
+        db, key=key, year=year, month=month, entity_id=entity_id
+    )
     if cash_schedule:
         checked = sorted(set(checked) | set(cash_schedule["auto_checked"]))
 
@@ -338,8 +400,25 @@ def get_binder_document(
         except ValueError:
             pass
 
+    attachments = _attachments_payload(db, doc.id if doc else None)
+    if cash_schedule:
+        can_prepare = cash_schedule["can_prepare"]
+        can_review = cash_schedule["can_review"]
+        gate_messages = list(cash_schedule["gate_messages"] or [])
+    elif wp_schedule:
+        can_prepare = bool(wp_schedule.get("can_prepare"))
+        can_review = bool(wp_schedule.get("can_review"))
+        gate_messages = list(wp_schedule.get("gate_messages") or [])
+        if wp_schedule.get("is_tied"):
+            index_row = {**index_row, "is_tied": True, "difference": wp_schedule.get("difference")}
+    else:
+        can_prepare = True
+        can_review = True
+        gate_messages = []
+
     return {
         **index_row,
+        "document_id": doc.id if doc else None,
         "period_year": year,
         "period_month": month,
         "period_label": binder["period_label"],
@@ -355,9 +434,12 @@ def get_binder_document(
         "notes": doc.notes if doc else None,
         "drill": drill_payload,
         "cash_schedule": cash_schedule,
-        "can_prepare": cash_schedule["can_prepare"] if cash_schedule else True,
-        "can_review": cash_schedule["can_review"] if cash_schedule else True,
-        "gate_messages": cash_schedule["gate_messages"] if cash_schedule else [],
+        "schedule": wp_schedule,
+        "attachments": attachments,
+        "attachment_count": len(attachments),
+        "can_prepare": can_prepare,
+        "can_review": can_review,
+        "gate_messages": gate_messages,
         "filters": filters.model_dump(mode="json"),
     }
 
@@ -437,6 +519,12 @@ def upsert_binder_document(
             status=intended_status,
             preparer=next_preparer or (actor if intended_status == "prepared" else doc.preparer),
             reviewer=next_reviewer or (actor if intended_status == "reviewed" else doc.reviewer),
+        )
+
+    if intended_status == "reviewed":
+        assert_segregation(
+            next_preparer or doc.preparer or actor,
+            next_reviewer or actor,
         )
 
     if preparer is not None:

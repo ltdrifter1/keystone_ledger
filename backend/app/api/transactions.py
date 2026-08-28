@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session, joinedload
 
+from app.auth import get_actor
 from app.database import get_db
 from app.engines.audit import write_audit
 from app.engines.categorization import categorize_transaction, split_transaction
@@ -126,7 +127,9 @@ def list_transactions(
 
 
 @router.post("", response_model=TransactionOut)
-def create_transaction(payload: TransactionCreate, db: Session = Depends(get_db)) -> TransactionOut:
+def create_transaction(
+    payload: TransactionCreate, db: Session = Depends(get_db), actor: str = Depends(get_actor)
+) -> TransactionOut:
     from app.engines.importing import ensure_date_dimension
 
     try:
@@ -141,14 +144,16 @@ def create_transaction(payload: TransactionCreate, db: Session = Depends(get_db)
         txn.status = "categorized"
     db.add(txn)
     db.flush()
-    write_audit(db, entity_table="transactions", entity_id=txn.id, action="create", actor="controller")
+    write_audit(db, entity_table="transactions", entity_id=txn.id, action="create", actor=actor)
     db.commit()
     loaded = _load_txn(db, txn.id)
     return _to_out(db, loaded)
 
 
 @router.patch("/{txn_id}", response_model=TransactionOut)
-def update_transaction(txn_id: int, payload: TransactionUpdate, db: Session = Depends(get_db)) -> TransactionOut:
+def update_transaction(
+    txn_id: int, payload: TransactionUpdate, db: Session = Depends(get_db), actor: str = Depends(get_actor)
+) -> TransactionOut:
     txn = db.get(Transaction, txn_id)
     if not txn:
         raise HTTPException(404, "Transaction not found")
@@ -174,21 +179,23 @@ def update_transaction(txn_id: int, payload: TransactionUpdate, db: Session = De
     if payload.create_rule and txn.account_id:
         from app.engines.rules import create_rule_from_transaction
 
-        create_rule_from_transaction(db, txn, name=payload.rule_name, actor="controller")
+        create_rule_from_transaction(db, txn, name=payload.rule_name, actor=actor)
 
-    write_audit(db, entity_table="transactions", entity_id=txn.id, action="update", actor="controller")
+    write_audit(db, entity_table="transactions", entity_id=txn.id, action="update", actor=actor)
     db.commit()
     loaded = _load_txn(db, txn_id)
     return _to_out(db, loaded)
 
 
 @router.post("/{txn_id}/categorize", response_model=TransactionOut)
-def categorize(txn_id: int, payload: CategorizeRequest, db: Session = Depends(get_db)) -> TransactionOut:
+def categorize(
+    txn_id: int, payload: CategorizeRequest, db: Session = Depends(get_db), actor: str = Depends(get_actor)
+) -> TransactionOut:
     txn = db.get(Transaction, txn_id)
     if not txn:
         raise HTTPException(404, "Transaction not found")
     try:
-        categorize_transaction(db, txn, payload, actor="controller")
+        categorize_transaction(db, txn, payload, actor=actor)
         db.commit()
     except PeriodLockedError as exc:
         db.rollback()
@@ -198,7 +205,9 @@ def categorize(txn_id: int, payload: CategorizeRequest, db: Session = Depends(ge
 
 
 @router.post("/bulk-categorize")
-def bulk_categorize(payload: BulkCategorizeRequest, db: Session = Depends(get_db)) -> dict:
+def bulk_categorize(
+    payload: BulkCategorizeRequest, db: Session = Depends(get_db), actor: str = Depends(get_actor)
+) -> dict:
     count = 0
     skipped_locked = 0
     for txn_id in payload.transaction_ids:
@@ -214,7 +223,7 @@ def bulk_categorize(payload: BulkCategorizeRequest, db: Session = Depends(get_db
                     department_id=payload.department_id,
                     create_rule=payload.create_rule and count == 0,
                 ),
-                actor="controller",
+                actor=actor,
             )
             count += 1
         except PeriodLockedError:
@@ -224,12 +233,14 @@ def bulk_categorize(payload: BulkCategorizeRequest, db: Session = Depends(get_db
 
 
 @router.post("/{txn_id}/split", response_model=TransactionOut)
-def split(txn_id: int, payload: SplitRequest, db: Session = Depends(get_db)) -> TransactionOut:
+def split(
+    txn_id: int, payload: SplitRequest, db: Session = Depends(get_db), actor: str = Depends(get_actor)
+) -> TransactionOut:
     txn = db.get(Transaction, txn_id)
     if not txn:
         raise HTTPException(404, "Transaction not found")
     try:
-        split_transaction(db, txn, payload.splits, actor="controller")
+        split_transaction(db, txn, payload.splits, actor=actor)
         db.commit()
     except PeriodLockedError as exc:
         db.rollback()
@@ -242,7 +253,7 @@ def split(txn_id: int, payload: SplitRequest, db: Session = Depends(get_db)) -> 
 
 
 @router.post("/apply-rules")
-def apply_rules(db: Session = Depends(get_db)) -> dict:
+def apply_rules(db: Session = Depends(get_db), actor: str = Depends(get_actor)) -> dict:
     txns = list(db.scalars(select(Transaction).where(Transaction.status == "uncategorized")))
     editable = []
     skipped_locked = 0
@@ -252,7 +263,7 @@ def apply_rules(db: Session = Depends(get_db)) -> dict:
             editable.append(txn)
         except PeriodLockedError:
             skipped_locked += 1
-    count = apply_rules_batch(db, editable, actor="controller")
+    count = apply_rules_batch(db, editable, actor=actor)
     db.commit()
     return {"categorized": count, "skipped_locked": skipped_locked}
 
@@ -263,7 +274,7 @@ def ic_candidates(db: Session = Depends(get_db)) -> list[IntercompanyMatchOut]:
 
 
 @router.post("/intercompany/auto-match")
-def ic_auto_match(db: Session = Depends(get_db)) -> dict:
-    count = auto_match_intercompany(db, actor="controller")
+def ic_auto_match(db: Session = Depends(get_db), actor: str = Depends(get_actor)) -> dict:
+    count = auto_match_intercompany(db, actor=actor)
     db.commit()
     return {"matched": count}

@@ -266,6 +266,21 @@ class Attachment(Base):
     uploaded_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
+class AppUser(Base):
+    """Named closer — preparer / reviewer / admin. Actor on audit and sign-off."""
+
+    __tablename__ = "app_users"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    username: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    display_name: Mapped[str] = mapped_column(String(128))
+    initials: Mapped[str] = mapped_column(String(8), index=True)
+    role: Mapped[str] = mapped_column(String(32), default="preparer")
+    # preparer | reviewer | admin
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
 class WorkingPaperDocument(Base):
     """Period-scoped working paper state (CaseWare-style binder document)."""
 

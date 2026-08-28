@@ -18,6 +18,10 @@ class Settings(BaseSettings):
     ]
     default_reporting_currency: str = "CAD"
     audit_enabled: bool = True
+    # demo | csv_folder | composite (csv overlay, then demo catalog)
+    feed_provider: str = "composite"
+    attachments_dir: str = str(Path(__file__).resolve().parent.parent / "data" / "attachments")
+    feeds_dir: str = str(Path(__file__).resolve().parent.parent / "data" / "feeds")
 
 
 @lru_cache

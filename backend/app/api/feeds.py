@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
+from app.auth import get_actor
 from app.database import get_db
 from app.engines.bank_feeds import connect_feed, disconnect_feed, list_feeds, sync_feed
 from app.schemas.feeds import BankFeedOut, FeedSyncOut
@@ -16,9 +17,11 @@ def get_feeds(entity_id: int | None = None, db: Session = Depends(get_db)) -> li
 
 
 @router.post("/{bank_account_id}/connect", response_model=BankFeedOut)
-def connect(bank_account_id: int, db: Session = Depends(get_db)) -> BankFeedOut:
+def connect(
+    bank_account_id: int, db: Session = Depends(get_db), actor: str = Depends(get_actor)
+) -> BankFeedOut:
     try:
-        row = connect_feed(db, bank_account_id, actor="controller")
+        row = connect_feed(db, bank_account_id, actor=actor)
         db.commit()
         return BankFeedOut.model_validate(row)
     except ValueError as exc:
@@ -27,9 +30,11 @@ def connect(bank_account_id: int, db: Session = Depends(get_db)) -> BankFeedOut:
 
 
 @router.post("/{bank_account_id}/disconnect", response_model=BankFeedOut)
-def disconnect(bank_account_id: int, db: Session = Depends(get_db)) -> BankFeedOut:
+def disconnect(
+    bank_account_id: int, db: Session = Depends(get_db), actor: str = Depends(get_actor)
+) -> BankFeedOut:
     try:
-        row = disconnect_feed(db, bank_account_id, actor="controller")
+        row = disconnect_feed(db, bank_account_id, actor=actor)
         db.commit()
         return BankFeedOut.model_validate(row)
     except ValueError as exc:
@@ -43,12 +48,13 @@ def sync(
     year: int | None = None,
     month: int | None = None,
     db: Session = Depends(get_db),
+    actor: str = Depends(get_actor),
 ) -> FeedSyncOut:
     try:
         row = sync_feed(
             db,
             bank_account_id,
-            actor="controller",
+            actor=actor,
             period_year=year,
             period_month=month,
         )

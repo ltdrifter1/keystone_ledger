@@ -9,68 +9,24 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.engines.audit import write_audit
+from app.engines.feed_providers import get_provider
 from app.engines.importing import BankImportRow, import_bank_rows
 from app.engines.reconciliation import calculated_book_balance, period_end
 from app.models import BankAccount, BankFeedConnection, DimEntity, Transaction
 
-PROVIDER = "keystone_open_banking"
 STALE_AFTER = timedelta(hours=24)
 
-# Deterministic incoming items for the WBC sample close (Jul 2026).
-# external_id is stable so re-sync is idempotent.
-_CATALOG: dict[str, list[tuple[str, str, str, str, str | None]]] = {
-    # account_number -> (date, description, amount, external_id, counterparty)
-    "1010": [
-        ("2026-07-28", "WBC LIVE — INTERAC E-TRANSFER A. CHEN", "-250.00", "FIT-1010-1", "A. Chen"),
-        ("2026-07-29", "WBC LIVE — STRIPE SETTLEMENT", "4820.15", "FIT-1010-2", "Stripe"),
-        ("2026-07-30", "WBC LIVE — SERVICE CHARGE", "-4.50", "FIT-1010-3", "WBC"),
-        ("2026-07-31", "WBC LIVE — PAYROLL FUNDING", "-18500.00", "FIT-1010-4", "ADP"),
-    ],
-    "1015": [
-        ("2026-07-29", "WBC LIVE — USD WIRE IN", "3200.00", "FIT-1015-1", "WBC USA"),
-        ("2026-07-31", "WBC LIVE — FX SERVICE FEE", "-18.00", "FIT-1015-2", "WBC"),
-    ],
-    "1030": [
-        ("2026-07-28", "WBC LIVE — VENDOR ACH", "-640.00", "FIT-1030-1", "Vendor"),
-        ("2026-07-30", "WBC LIVE — INTEREST CREDIT", "12.40", "FIT-1030-2", "WBC"),
-    ],
-    "1050": [
-        ("2026-07-29", "WBC LIVE — CARD SETTLEMENT", "910.22", "FIT-1050-1", "Visa"),
-        ("2026-07-31", "WBC LIVE — CARD FEE", "-9.10", "FIT-1050-2", "WBC"),
-    ],
-    "USA-1010": [
-        ("2026-07-15", "WBC LIVE — US OPERATING DEPOSIT", "25000.00", "FIT-USA-1", "Customer"),
-        ("2026-07-18", "WBC LIVE — US PAYROLL", "-8200.00", "FIT-USA-2", "Gusto"),
-        ("2026-07-22", "WBC LIVE — AWS", "-1420.55", "FIT-USA-3", "Amazon"),
-        ("2026-07-28", "WBC LIVE — STRIPE US", "6110.00", "FIT-USA-4", "Stripe"),
-        ("2026-07-31", "WBC LIVE — ACCOUNT FEE", "-15.00", "FIT-USA-5", "WBC"),
-    ],
-}
+
+def _provider():
+    return get_provider()
 
 
 def _as_rows(bank: BankAccount) -> list[BankImportRow]:
-    raw = _CATALOG.get(bank.account_number)
-    if not raw:
-        suffix = str(bank.id)
-        raw = [
-            ("2026-07-28", f"LIVE FEED — {bank.name} SETTLEMENT", "1500.00", f"FIT-{suffix}-1", bank.institution),
-            ("2026-07-30", f"LIVE FEED — {bank.name} FEE", "-12.00", f"FIT-{suffix}-2", bank.institution),
-        ]
-    rows: list[BankImportRow] = []
-    for txn_date, description, amount, external_id, counterparty in raw:
-        rows.append(
-            BankImportRow(
-                txn_date=date.fromisoformat(txn_date),
-                description=description,
-                amount=Decimal(amount),
-                currency=bank.currency,
-                external_id=external_id,
-                reference=external_id,
-                counterparty=counterparty,
-                label=external_id,
-            )
-        )
-    return rows
+    return _provider().rows(bank)
+
+
+def _provider_key() -> str:
+    return _provider().key
 
 
 def pending_rows(db: Session, bank: BankAccount) -> list[BankImportRow]:
@@ -119,7 +75,7 @@ def serialize_feed(
         "account_number": bank.account_number,
         "currency": bank.currency,
         "institution": bank.institution,
-        "provider": conn.provider if conn else PROVIDER,
+        "provider": conn.provider if conn else _provider_key(),
         "status": conn.status if conn else "disconnected",
         "last_synced_at": conn.last_synced_at if conn else None,
         "last_balance": conn.last_balance if conn else None,
@@ -175,7 +131,7 @@ def get_or_create_connection(db: Session, bank: BankAccount) -> BankFeedConnecti
         return conn
     conn = BankFeedConnection(
         bank_account_id=bank.id,
-        provider=PROVIDER,
+        provider=_provider_key(),
         status="disconnected",
     )
     db.add(conn)
@@ -194,7 +150,7 @@ def ensure_feed_connections(db: Session, *, auto_connect: bool = True) -> int:
         now = datetime.utcnow() if auto_connect else None
         conn = BankFeedConnection(
             bank_account_id=bank.id,
-            provider=PROVIDER,
+            provider=_provider_key(),
             status="connected" if auto_connect else "disconnected",
             connected_at=now,
             connected_by="system",
@@ -234,7 +190,7 @@ def connect_feed(db: Session, bank_account_id: int, actor: str = "controller") -
         raise ValueError("Bank account not found")
     conn = get_or_create_connection(db, bank)
     conn.status = "connected"
-    conn.provider = PROVIDER
+    conn.provider = _provider_key()
     conn.error_message = None
     conn.connected_at = datetime.utcnow()
     conn.connected_by = actor
@@ -245,7 +201,7 @@ def connect_feed(db: Session, bank_account_id: int, actor: str = "controller") -
         entity_id=conn.id,
         action="connect",
         actor=actor,
-        meta={"bank_account_id": bank_account_id, "provider": PROVIDER},
+        meta={"bank_account_id": bank_account_id, "provider": _provider_key()},
     )
     return serialize_feed(db, bank, conn, include_pending=True)
 
@@ -296,7 +252,7 @@ def sync_feed(
         actor=actor,
         source_type="bank_feed",
         skip_duplicates=True,
-        filename=f"feed:{PROVIDER}",
+        filename=f"feed:{_provider_key()}",
     )
 
     as_of = date.today()

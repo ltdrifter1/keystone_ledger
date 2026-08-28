@@ -165,6 +165,7 @@ class BinderDocumentOut(BinderDocumentIndex):
     period_label: str
     period_end: str
     entity_id: Optional[int] = None
+    document_id: Optional[int] = None
     objective: str
     tie_out: str
     procedures: list[str] = Field(default_factory=list)
@@ -173,6 +174,9 @@ class BinderDocumentOut(BinderDocumentIndex):
     notes: Optional[str] = None
     drill: Optional[BinderDrill] = None
     cash_schedule: Optional[CashReconSchedule] = None
+    schedule: Optional[dict[str, Any]] = None
+    attachments: list[dict[str, Any]] = Field(default_factory=list)
+    attachment_count: int = 0
     can_prepare: bool = True
     can_review: bool = True
     gate_messages: list[str] = Field(default_factory=list)

@@ -7,6 +7,7 @@ from app.api import api_router
 from app.config import get_settings
 from app.database import SessionLocal, init_db
 from app.engines.bank_feeds import ensure_feed_connections
+from app.engines.identity import ensure_users
 from app.engines.working_papers import ensure_working_paper_foundation
 from app.services.ensure_budget import ensure_bank_budget_targets
 from app.services.ensure_pnl_budget import ensure_pnl_budget_targets
@@ -23,6 +24,10 @@ async def lifespan(_: FastAPI):
         seeded = seed_if_empty(db)
         if seeded:
             print("Seeded WBC data (CAN + USA entities, chart from synoptic map, CAN 1010 synoptic)")
+        users = ensure_users(db)
+        if users:
+            print(f"Seeded {users} close-team user(s)")
+            db.commit()
         foundation = ensure_working_paper_foundation(db)
         if foundation.get("accounts_created") or foundation.get("layouts_created"):
             print(
@@ -53,7 +58,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.cors_origins + ["*"],
+    allow_origins=settings.cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

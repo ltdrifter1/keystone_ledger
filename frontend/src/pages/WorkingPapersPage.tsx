@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { CheckCircle2, ClipboardList, ExternalLink, AlertTriangle } from 'lucide-react'
-import { api, type BinderDocument, type BinderOut } from '../api'
+import { CheckCircle2, ClipboardList, ExternalLink, AlertTriangle, Paperclip, BookPlus } from 'lucide-react'
+import { api, type Account, type BinderDocument, type BinderOut } from '../api'
 import { useEngagement } from '../period/PeriodContext'
+import { useSession } from '../session/SessionContext'
+import { JournalVoucherModal } from '../components/JournalVoucherModal'
 import { money } from '../lib/format'
 
 const SECTION_LABEL: Record<string, string> = {
@@ -14,6 +16,7 @@ const SECTION_LABEL: Record<string, string> = {
 
 export function WorkingPapersPage() {
   const { year, month, setPeriod, label, entityCode, entityId } = useEngagement()
+  const { user } = useSession()
   const [searchParams, setSearchParams] = useSearchParams()
   const [binder, setBinder] = useState<BinderOut | null>(null)
   const [doc, setDoc] = useState<BinderDocument | null>(null)
@@ -21,6 +24,8 @@ export function WorkingPapersPage() {
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [loading, setLoading] = useState(true)
+  const [accounts, setAccounts] = useState<Account[]>([])
+  const [journalOpen, setJournalOpen] = useState(false)
 
   // Sync URL period → context
   useEffect(() => {
@@ -34,6 +39,10 @@ export function WorkingPapersPage() {
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  useEffect(() => {
+    api.accounts().then(setAccounts).catch(() => undefined)
   }, [])
 
   const loadBinder = useCallback(async () => {
@@ -212,6 +221,9 @@ export function WorkingPapersPage() {
                       Work desk <ExternalLink size={14} />
                     </Link>
                   )}
+                  <button className="btn" type="button" onClick={() => setJournalOpen(true)}>
+                    <BookPlus size={14} /> Adjusting journal
+                  </button>
                 </div>
               </div>
 
@@ -409,7 +421,11 @@ export function WorkingPapersPage() {
                       </>
                     )}
 
-                    {!doc.cash_schedule && doc.drill && doc.drill.lines.length > 0 && (
+                    {!doc.cash_schedule && doc.schedule && (
+                      <WpLiveSchedule schedule={doc.schedule} currency={doc.currency} />
+                    )}
+
+                    {!doc.cash_schedule && !doc.schedule && doc.drill && doc.drill.lines.length > 0 && (
                       <>
                         <div className="wp-pack-section-head" style={{ marginTop: '1.1rem' }}>
                           <h3>Supporting schedule</h3>
@@ -451,8 +467,35 @@ export function WorkingPapersPage() {
                   <div>
                     <div className="wp-pack-section-head">
                       <h3>Evidence</h3>
+                      <span className="hint">{doc.attachment_count ?? 0} file(s)</span>
                     </div>
                     <ul className="wp-evidence-list">
+                      {(doc.attachments || []).map((file) => (
+                        <li key={file.id}>
+                          <Paperclip size={12} /> {file.filename}
+                          <span className="hint"> · {file.uploaded_by}</span>
+                        </li>
+                      ))}
+                    </ul>
+                    <label className="btn ghost" style={{ margin: '0.35rem 0 0.75rem' }}>
+                      Upload support
+                      <input
+                        type="file"
+                        hidden
+                        onChange={(e) => {
+                          const file = e.target.files?.[0]
+                          if (!file || !doc.document_id) return
+                          void api
+                            .uploadAttachment('working_paper_documents', doc.document_id, file)
+                            .then(async () => {
+                              if (activeKey) await loadDoc(activeKey)
+                            })
+                            .catch((err: Error) => setError(err.message))
+                          e.target.value = ''
+                        }}
+                      />
+                    </label>
+                    <ul className="wp-evidence-list faint">
                       {doc.evidence.map((item) => (
                         <li key={item}>{item}</li>
                       ))}
@@ -464,23 +507,17 @@ export function WorkingPapersPage() {
                     <div className="wp-signoff">
                       <label>
                         Preparer
-                        <input
-                          value={doc.preparer ?? ''}
-                          onChange={(e) => setDoc({ ...doc, preparer: e.target.value })}
-                          onBlur={(e) => void persist({ preparer: e.target.value })}
-                          placeholder="Initials"
-                        />
+                        <input value={doc.preparer ?? ''} readOnly placeholder="—" />
                       </label>
                       <label>
                         Reviewer
-                        <input
-                          value={doc.reviewer ?? ''}
-                          onChange={(e) => setDoc({ ...doc, reviewer: e.target.value })}
-                          onBlur={(e) => void persist({ reviewer: e.target.value })}
-                          placeholder="Initials"
-                        />
+                        <input value={doc.reviewer ?? ''} readOnly placeholder="—" />
                       </label>
                     </div>
+                    <p className="hint">
+                      Signed in as {user ? `${user.initials} · ${user.display_name}` : '…'}. Switch user in the
+                      sidebar to review.
+                    </p>
                     <div className="toolbar" style={{ marginBottom: '0.65rem' }}>
                       <button
                         className="btn"
@@ -491,33 +528,48 @@ export function WorkingPapersPage() {
                         }
                         title={
                           doc.can_prepare === false
-                            ? (doc.gate_messages || []).join('; ') || 'Cash recon not ready'
+                            ? (doc.gate_messages || []).join('; ') || 'Not ready'
                             : undefined
                         }
                         onClick={() =>
-                          void persist({ status: 'prepared', preparer: doc.preparer || 'C' })
+                          void persist({
+                            status: 'prepared',
+                            preparer: user?.initials,
+                          })
                         }
                       >
                         Mark prepared
                       </button>
                       <button
                         className="btn primary"
-                        disabled={doc.status === 'reviewed' || doc.can_review === false}
-                        title={
-                          doc.can_review === false
-                            ? (doc.gate_messages || []).join('; ') || 'Lock banks before review'
-                            : undefined
+                        disabled={
+                          doc.status === 'reviewed' ||
+                          doc.can_review === false ||
+                          !doc.preparer ||
+                          (user?.initials || '').toUpperCase() === (doc.preparer || '').toUpperCase()
                         }
-                        onClick={() => {
-                          const prep = (doc.preparer || 'C').trim()
-                          let rev = (doc.reviewer || 'R').trim()
-                          if (rev.toUpperCase() === prep.toUpperCase()) rev = `${rev}2`
-                          void persist({ status: 'reviewed', preparer: prep, reviewer: rev })
-                        }}
+                        title={
+                          (user?.initials || '').toUpperCase() === (doc.preparer || '').toUpperCase()
+                            ? 'Reviewer must be a different person — switch user'
+                            : doc.can_review === false
+                              ? (doc.gate_messages || []).join('; ') || 'Not ready'
+                              : undefined
+                        }
+                        onClick={() =>
+                          void persist({
+                            status: 'reviewed',
+                            reviewer: user?.initials,
+                          })
+                        }
                       >
                         Mark reviewed
                       </button>
                     </div>
+                    {(doc.gate_messages?.length ?? 0) > 0 && doc.key !== 'cash' && (
+                      <p className="hint" style={{ marginBottom: '0.65rem' }}>
+                        {doc.gate_messages!.join(' · ')}
+                      </p>
+                    )}
                     {doc.key === 'cash' && (
                       <p className="hint" style={{ marginBottom: '0.65rem' }}>
                         Prepare requires every bank ready/locked with diff = 0 and BS cash = bank books.
@@ -547,6 +599,192 @@ export function WorkingPapersPage() {
           )}
         </section>
       </div>
+      <JournalVoucherModal
+        open={journalOpen}
+        accounts={accounts}
+        workingPaperKey={activeKey || undefined}
+        onClose={() => setJournalOpen(false)}
+        onPosted={() => {
+          if (activeKey) void loadDoc(activeKey)
+          void loadBinder()
+        }}
+      />
     </div>
+  )
+}
+
+function WpLiveSchedule({
+  schedule,
+  currency,
+}: {
+  schedule: NonNullable<BinderDocument['schedule']>
+  currency: string
+}) {
+  const kindLabel =
+    schedule.kind === 'aging'
+      ? 'Aging'
+      : schedule.kind === 'rollforward'
+        ? 'Rollforward'
+        : schedule.kind === 'intercompany'
+          ? 'Intercompany listing'
+          : 'Lead schedule'
+  return (
+    <>
+      <div className="wp-pack-section-head" style={{ marginTop: '1.1rem' }}>
+        <h3>{kindLabel}</h3>
+        <span className="hint">
+          {schedule.row_count ?? 0} items · {schedule.is_tied ? 'tied' : 'untied'}
+        </span>
+      </div>
+      {schedule.kind === 'aging' && (
+        <div className="table-wrap" style={{ maxHeight: 320 }}>
+          <table className="data cash-recon-table">
+            <thead>
+              <tr>
+                <th>Counterparty</th>
+                <th className="num">Current</th>
+                <th className="num">31–60</th>
+                <th className="num">61–90</th>
+                <th className="num">91+</th>
+                <th className="num">Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(schedule.parties || []).map((p) => (
+                <tr key={p.counterparty}>
+                  <td>
+                    {p.counterparty}
+                    <div className="hint">{p.count} items</div>
+                  </td>
+                  <td className="num">{money(p.current, currency)}</td>
+                  <td className="num">{money(p.days_31_60, currency)}</td>
+                  <td className="num">{money(p.days_61_90, currency)}</td>
+                  <td className="num">{money(p.days_91_plus, currency)}</td>
+                  <td className="num">{money(p.total, currency)}</td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr>
+                <td>vs statement {money(schedule.gl_amount, currency)}</td>
+                <td className="num" colSpan={4}>
+                  {schedule.buckets
+                    ? `${money(schedule.buckets.current)} / ${money(schedule.buckets.days_31_60)} / ${money(schedule.buckets.days_61_90)} / ${money(schedule.buckets.days_91_plus)}`
+                    : '—'}
+                </td>
+                <td className="num">{money(schedule.schedule_total ?? 0, currency)}</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      )}
+      {schedule.kind === 'rollforward' && (
+        <div className="table-wrap" style={{ maxHeight: 320 }}>
+          <table className="data cash-recon-table">
+            <thead>
+              <tr>
+                <th>Account</th>
+                <th className="num">Opening</th>
+                <th className="num">Additions</th>
+                <th className="num">Reductions</th>
+                <th className="num">Closing</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(schedule.accounts || []).map((a) => (
+                <tr key={a.account_code}>
+                  <td>
+                    {a.account_code} {a.account_name}
+                  </td>
+                  <td className="num">{money(a.opening ?? 0, currency)}</td>
+                  <td className="num">{money(a.additions ?? 0, currency)}</td>
+                  <td className="num">{money(a.reductions ?? 0, currency)}</td>
+                  <td className="num">{money(a.closing ?? 0, currency)}</td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr>
+                <td>Tie to statement {money(schedule.gl_amount, currency)}</td>
+                <td className="num">{money(schedule.opening ?? 0, currency)}</td>
+                <td className="num">{money(schedule.additions ?? 0, currency)}</td>
+                <td className="num">{money(schedule.reductions ?? 0, currency)}</td>
+                <td className="num">{money(schedule.closing ?? 0, currency)}</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      )}
+      {schedule.kind === 'intercompany' && (
+        <div className="table-wrap" style={{ maxHeight: 280 }}>
+          <table className="data">
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Description</th>
+                <th>Status</th>
+                <th className="num">Amount</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(schedule.unmatched || []).map((r) => (
+                <tr key={`u-${r.transaction_id}`}>
+                  <td>{r.txn_date}</td>
+                  <td>
+                    {r.description}
+                    <div className="hint">{r.entity_code}</div>
+                  </td>
+                  <td>
+                    <span className="badge open">unmatched</span>
+                  </td>
+                  <td className="num">{money(r.signed_amount, currency)}</td>
+                </tr>
+              ))}
+              {(schedule.matched || []).slice(0, 20).map((r) => (
+                <tr key={`m-${r.transaction_id}`}>
+                  <td>{r.txn_date}</td>
+                  <td>
+                    {r.description}
+                    <div className="hint">{r.entity_code}</div>
+                  </td>
+                  <td>
+                    <span className="badge ok">matched</span>
+                  </td>
+                  <td className="num">{money(r.signed_amount, currency)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {schedule.kind === 'lead' && (
+        <div className="table-wrap" style={{ maxHeight: 280 }}>
+          <table className="data">
+            <thead>
+              <tr>
+                <th>Account</th>
+                <th className="num">Amount</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(schedule.accounts || []).map((a) => (
+                <tr key={a.account_code}>
+                  <td>
+                    {a.account_code} {a.account_name}
+                  </td>
+                  <td className="num">{money(a.total ?? 0, currency)}</td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr>
+                <td>vs statement {money(schedule.gl_amount, currency)}</td>
+                <td className="num">{money(schedule.schedule_total ?? 0, currency)}</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      )}
+    </>
   )
 }

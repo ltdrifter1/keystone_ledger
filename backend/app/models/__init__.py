@@ -8,6 +8,7 @@ from app.models.dimensions import (
     DimScenario,
 )
 from app.models.domain import (
+    AppUser,
     Attachment,
     AuditLog,
     BankAccount,
@@ -28,6 +29,7 @@ __all__ = [
     "DimFx",
     "DimReportLayout",
     "DimScenario",
+    "AppUser",
     "Attachment",
     "AuditLog",
     "BankAccount",

@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.auth import get_actor
 from app.database import get_db
 from app.engines.audit import write_audit
 from app.models import AuditLog, BankAccount, DimAccount, DimDepartment, DimEntity, DimFx, DimScenario
@@ -28,11 +29,13 @@ def list_entities(db: Session = Depends(get_db)) -> list[EntityOut]:
 
 
 @router.post("/entities", response_model=EntityOut)
-def create_entity(payload: EntityCreate, db: Session = Depends(get_db)) -> EntityOut:
+def create_entity(
+    payload: EntityCreate, db: Session = Depends(get_db), actor: str = Depends(get_actor)
+) -> EntityOut:
     ent = DimEntity(**payload.model_dump())
     db.add(ent)
     db.flush()
-    write_audit(db, entity_table="dim_entity", entity_id=ent.id, action="create", actor="controller")
+    write_audit(db, entity_table="dim_entity", entity_id=ent.id, action="create", actor=actor)
     db.commit()
     db.refresh(ent)
     return ent
@@ -44,11 +47,13 @@ def list_accounts(db: Session = Depends(get_db)) -> list[AccountOut]:
 
 
 @router.post("/accounts", response_model=AccountOut)
-def create_account(payload: AccountCreate, db: Session = Depends(get_db)) -> AccountOut:
+def create_account(
+    payload: AccountCreate, db: Session = Depends(get_db), actor: str = Depends(get_actor)
+) -> AccountOut:
     acct = DimAccount(**payload.model_dump())
     db.add(acct)
     db.flush()
-    write_audit(db, entity_table="dim_account", entity_id=acct.id, action="create", actor="controller")
+    write_audit(db, entity_table="dim_account", entity_id=acct.id, action="create", actor=actor)
     db.commit()
     db.refresh(acct)
     return acct
@@ -70,11 +75,13 @@ def list_bank_accounts(db: Session = Depends(get_db)) -> list[BankAccountOut]:
 
 
 @router.post("/bank-accounts", response_model=BankAccountOut)
-def create_bank_account(payload: BankAccountCreate, db: Session = Depends(get_db)) -> BankAccountOut:
+def create_bank_account(
+    payload: BankAccountCreate, db: Session = Depends(get_db), actor: str = Depends(get_actor)
+) -> BankAccountOut:
     bank = BankAccount(**payload.model_dump())
     db.add(bank)
     db.flush()
-    write_audit(db, entity_table="bank_accounts", entity_id=bank.id, action="create", actor="controller")
+    write_audit(db, entity_table="bank_accounts", entity_id=bank.id, action="create", actor=actor)
     db.commit()
     db.refresh(bank)
     return bank
