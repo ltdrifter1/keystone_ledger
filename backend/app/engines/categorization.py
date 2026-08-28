@@ -51,6 +51,7 @@ def categorize_transaction(
             txn,
             name=payload.rule_name,
             remember_description=payload.remember_description,
+            kind="gl",
             actor=actor,
         )
     return txn

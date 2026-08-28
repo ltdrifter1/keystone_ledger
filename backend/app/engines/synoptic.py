@@ -26,7 +26,7 @@ from sqlalchemy.orm import Session
 
 from app.engines.audit import write_audit
 from app.engines.fingerprint import transaction_fingerprint
-from app.engines.fx import translate_amount
+from app.engines.fx import persistable_fx, translate_amount
 from app.engines.importing import ensure_date_dimension
 from app.engines.period_locks import PeriodLockedError, assert_bank_period_open
 from app.models import (
@@ -325,14 +325,15 @@ def import_synoptic_file(
             skipped += 1
             continue
 
-        reporting_amount, fx_rate = translate_amount(
+        translated = translate_amount(
             db,
             amount=amount,
             from_currency=bank.currency,
             to_currency=entity.functional_currency,
             as_of=txn_date,
-            rate_type="spot",
+            rate_type="closing",
         )
+        reporting_amount, fx_rate = persistable_fx(translated)
 
         # Counter entity for interco channels / cross-entity transfer targets
         counter_entity_id = None
