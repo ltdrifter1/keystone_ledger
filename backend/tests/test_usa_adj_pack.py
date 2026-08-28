@@ -59,8 +59,8 @@ def test_usa_ar_ap_schedules_include_adj():
     db = SessionLocal()
     try:
         usa = db.scalar(select(DimEntity).where(DimEntity.code == "USA"))
-        ar = build_wp_schedule(db, "ar", 2026, 7, entity_id=usa.id)
-        ap = build_wp_schedule(db, "ap", 2026, 7, entity_id=usa.id)
+        ar = build_wp_schedule(db, key="ar", year=2026, month=7, entity_id=usa.id)
+        ap = build_wp_schedule(db, key="ap", year=2026, month=7, entity_id=usa.id)
         assert ar["kind"] == "aging"
         assert ap["kind"] == "aging"
         ar_gl = ar.get("gl_amount", ar.get("gl"))
