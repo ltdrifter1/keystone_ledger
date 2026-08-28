@@ -264,7 +264,11 @@ def test_usa_home_is_journal_led_monthly_queue():
     assert body["journal_led"] is True
     keys = {q["key"] for q in body["queue"]}
     assert "connect-feeds" not in keys
-    assert "lock-month" in keys
-    assert any(k.startswith("review-journals") or k == "review-journals" for k in keys)
-    assert "daily" not in body["queue"][0]["detail"].lower()
-    assert "daily" not in body["queue"][0]["title"].lower()
+    assert "lock-month" not in keys
+    assert "review-journals" not in keys
+    assert all("daily" not in (q.get("detail") or "").lower() for q in body["queue"])
+    assert all("daily" not in (q.get("title") or "").lower() for q in body["queue"])
+    if body["progress"].get("can_print"):
+        assert "pack-ready" in keys
+    else:
+        assert keys

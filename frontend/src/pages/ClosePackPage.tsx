@@ -507,11 +507,11 @@ export function ClosePackPage() {
     <div>
       <div className="page-header">
         <div>
-          <h1>Work</h1>
+          <h1>Books</h1>
           <p>
             {journalLed
-              ? `Monthly journals for ${entityCode ?? 'entity'} · ${year}-${String(month).padStart(2, '0')}: review FY vouchers, match IC, lock the month from Home.`
-              : `Bank desk for ${entityCode ?? 'entity'} · ${year}-${String(month).padStart(2, '0')}: next actions → exceptions → register → lock.`}
+              ? `Journals for ${entityCode ?? 'entity'} · ${year}-${String(month).padStart(2, '0')}. This is the book, not a close file.`
+              : `Bank book for ${entityCode ?? 'entity'} · ${year}-${String(month).padStart(2, '0')}. Categorize activity so the statements can print.`}
           </p>
         </div>
         <div className="toolbar">
@@ -530,13 +530,12 @@ export function ClosePackPage() {
       {journalLed && (
         <section className="panel">
           <div className="panel-header">
-            <h2>Journal-led monthly rec</h2>
+            <h2>Journals</h2>
             <span className={`badge ${monthLocked ? 'ok' : ''}`}>{monthLocked ? 'month locked' : 'month open'}</span>
           </div>
           <p className="hint">
-            Bank recon is N/A while cash is nil. Post or review month-end journals here, match CAN↔USA
-            intercompany on the binder, then lock the month from Home. After lock, late items go through
-            post-close adj (PCA).
+            Cash recon is N/A while cash is nil. Post or review journals here. Late items after lock go
+            through post-close adj (PCA).
           </p>
         </section>
       )}
@@ -556,9 +555,6 @@ export function ClosePackPage() {
             <CheckCircle2 size={12} /> Entity banks locked
           </span>
         )}
-        <Link className="btn ghost" to={`/binder?year=${year}&month=${month}&key=cash`}>
-          Cash WP C.1
-        </Link>
         <button className="btn" type="button" onClick={() => setJournalOpen(true)}>
           <BookPlus size={14} /> Journal
         </button>

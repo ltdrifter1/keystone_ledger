@@ -30,7 +30,6 @@ def test_engagement_home_engine_entity_scoped():
         assert home["entity_code"] == "CAN"
         assert home["period_label"] == "2026-06"
         assert home["work_href"].startswith("/work?")
-        assert home["binder_href"].startswith("/binder?")
         assert home["statements_href"].startswith("/statements?")
         assert isinstance(home["queue"], list)
         assert len(home["queue"]) >= 1
@@ -39,8 +38,10 @@ def test_engagement_home_engine_entity_scoped():
         for item in home["queue"]:
             assert item["href"].startswith("/")
             assert "/close?" not in item["href"]
-            assert "/working-papers?" not in item["href"]
-            assert item["phase"] in ("work", "binder", "home")
+            assert item["phase"] in ("work", "home")
+            assert item["key"] != "lock-month"
+            assert not item["key"].startswith("sign-")
+            assert not item["key"].startswith("flux-")
     finally:
         db.close()
 
@@ -61,6 +62,26 @@ def test_engagement_home_api():
     usa = client.get(f"/api/engagement/home?year=2026&month=6&entity_id={usa_id}").json()
     assert usa["entity_code"] == "USA"
     assert usa["progress"]["banks_total"] < can_banks
+
+
+def test_home_queue_is_pack_exceptions_only():
+    entities = {e["code"]: e for e in client.get("/api/entities").json()}
+    can = client.get(
+        f"/api/engagement/home?year=2026&month=7&entity_id={entities['CAN']['id']}"
+    ).json()
+    keys = {q["key"] for q in can["queue"]}
+    assert "lock-month" not in keys
+    assert "connect-feeds" not in keys
+    assert not any(k.startswith("sign-") or k.startswith("flux-") for k in keys)
+    if not can["progress"]["can_print"]:
+        assert "out-of-balance" in keys or "uncategorized" in keys or "cashbook-journals" in keys or "unmapped" in keys
+    usa = client.get(
+        f"/api/engagement/home?year=2026&month=7&entity_id={entities['USA']['id']}"
+    ).json()
+    usa_keys = {q["key"] for q in usa["queue"]}
+    assert "lock-month" not in usa_keys
+    if usa["progress"]["can_print"]:
+        assert usa_keys == {"pack-ready"}
 
 
 def test_binder_cash_entity_scoped():
