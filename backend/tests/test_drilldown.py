@@ -15,7 +15,7 @@ def setup_module():
 
 
 def test_report_lines_are_drillable():
-    res = client.get("/api/reports/income-statement?period=ytd")
+    res = client.get("/api/reports/income-statement?period=ytd&year=2026&month=7")
     assert res.status_code == 200
     body = res.json()
     drillable = [line for line in body["lines"] if line.get("drillable")]
@@ -24,7 +24,7 @@ def test_report_lines_are_drillable():
 
 
 def test_drill_ties_to_statement_line():
-    report = client.get("/api/reports/income-statement?period=ytd").json()
+    report = client.get("/api/reports/income-statement?period=ytd&year=2026&month=7").json()
     line = next(item for item in report["lines"] if item["drillable"] and item.get("account_id"))
     drill = client.post(
         "/api/reports/drill",
@@ -37,7 +37,8 @@ def test_drill_ties_to_statement_line():
                 "period": "ytd",
                 "scenario_id": 1,
                 "reporting_currency": "CAD",
-                "year": None,
+                "year": 2026,
+                "month": 7,
             },
         },
     )
@@ -51,7 +52,7 @@ def test_drill_ties_to_statement_line():
 
 
 def test_drill_net_income():
-    report = client.get("/api/reports/income-statement?period=ytd").json()
+    report = client.get("/api/reports/income-statement?period=ytd&year=2026&month=7").json()
     ni = next(item for item in report["lines"] if item["line_code"] in ("NI", "NET_INCOME"))
     drill = client.post(
         "/api/reports/drill",
@@ -61,6 +62,8 @@ def test_drill_net_income():
             "filters": {
                 "report_type": "income_statement",
                 "period": "ytd",
+                "year": 2026,
+                "month": 7,
                 "scenario_id": 1,
                 "reporting_currency": "CAD",
             },

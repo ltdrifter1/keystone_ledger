@@ -5,21 +5,30 @@ import { BudgetPage, ExpensesPage, SalesPage } from './OpsViewsPage'
 import { AnalyticsPage } from './AnalyticsPage'
 import { useEngagement } from '../period/PeriodContext'
 
-const TABS = [
-  { id: 'statement', label: 'Statement' },
+const PRIMARY = [
+  { id: 'pnl', label: 'Profit & Loss' },
+  { id: 'bs', label: 'Balance Sheet' },
+] as const
+
+const MORE = [
   { id: 'analytics', label: 'Analytics' },
   { id: 'sales', label: 'Sales' },
   { id: 'expenses', label: 'Expenses' },
   { id: 'budget', label: 'Budget' },
 ] as const
 
-type TabId = (typeof TABS)[number]['id']
+type TabId = (typeof PRIMARY)[number]['id'] | (typeof MORE)[number]['id']
+
+function normalizeTab(tabParam: string | null, typeParam: string | null): TabId {
+  if (tabParam === 'bs' || typeParam === 'balance_sheet') return 'bs'
+  if (tabParam && MORE.some((t) => t.id === tabParam)) return tabParam as TabId
+  return 'pnl'
+}
 
 export function StatementsPage() {
   const [params, setParams] = useSearchParams()
   const { year, month, setPeriod } = useEngagement()
-  const tabParam = params.get('tab') || 'statement'
-  const tab: TabId = TABS.some((t) => t.id === tabParam) ? (tabParam as TabId) : 'statement'
+  const tab = normalizeTab(params.get('tab'), params.get('type'))
 
   useEffect(() => {
     const y = params.get('year')
@@ -32,6 +41,9 @@ export function StatementsPage() {
     p.set('tab', next)
     p.set('year', String(year))
     p.set('month', String(month))
+    if (next === 'bs') p.set('type', 'balance_sheet')
+    else if (next === 'pnl') p.set('type', 'income_statement')
+    else p.delete('type')
     setParams(p, { replace: true })
   }
 
@@ -40,19 +52,32 @@ export function StatementsPage() {
     if (tab === 'sales') return <SalesPage embedded />
     if (tab === 'expenses') return <ExpensesPage embedded />
     if (tab === 'budget') return <BudgetPage embedded />
-    return <ReportsPage />
+    return <ReportsPage forcedType={tab === 'bs' ? 'balance_sheet' : 'income_statement'} />
   }, [tab])
 
   return (
     <div className="statements-hub">
       <div className="statements-tabs" role="tablist" aria-label="Statements">
-        {TABS.map((t) => (
+        {PRIMARY.map((t) => (
           <button
             key={t.id}
             type="button"
             role="tab"
             aria-selected={tab === t.id}
             className={`statements-tab ${tab === t.id ? 'active' : ''}`}
+            onClick={() => setTab(t.id)}
+          >
+            {t.label}
+          </button>
+        ))}
+        <span className="statements-tab-divider" aria-hidden="true" />
+        {MORE.map((t) => (
+          <button
+            key={t.id}
+            type="button"
+            role="tab"
+            aria-selected={tab === t.id}
+            className={`statements-tab statements-tab-more ${tab === t.id ? 'active' : ''}`}
             onClick={() => setTab(t.id)}
           >
             {t.label}

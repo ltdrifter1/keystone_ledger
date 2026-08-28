@@ -254,6 +254,12 @@ export type Report = {
   budget_label?: string | null
   columns?: string[]
   flux?: FluxItem[]
+  cover_title?: string | null
+  entity_name?: string | null
+  is_balanced?: boolean | null
+  balance_difference?: string | null
+  fx_missing?: boolean
+  fx_missing_pairs?: string[]
 }
 
 export type AnalyticsKpi = {

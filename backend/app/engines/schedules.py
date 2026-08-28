@@ -100,19 +100,20 @@ def _account_ids(db: Session, template) -> list[int]:
     codes = set(template.account_codes)
     rows = list(db.scalars(select(DimAccount)))
     ids = [a.id for a in rows if a.code in codes]
-    if ids:
-        return ids
-    # P&L: all revenue/expense
-    if template.key == "pnl_analysis":
-        return [a.id for a in rows if a.account_type in ("revenue", "expense") and a.is_active]
     if template.key == "interco":
-        return [
+        extra = [
             a.id
             for a in rows
             if a.is_intercompany
             or a.account_type in ("transfer", "intercompany")
             or a.code in ("1100", "2000", "2100")
         ]
+        return list(dict.fromkeys(ids + extra))
+    if ids:
+        return ids
+    # P&L: all revenue/expense
+    if template.key == "pnl_analysis":
+        return [a.id for a in rows if a.account_type in ("revenue", "expense") and a.is_active]
     return ids
 
 
@@ -433,7 +434,8 @@ def build_wp_schedule(
     )
 
     if key in AGING_KEYS:
-        # Aging uses cumulative BS facts through period end
+        # Trade AR/AP aging — Interco legs on 1100/2000 belong on the IC WP.
+        period_rows = [r for r in period_rows if not _row_is_ic(r)]
         body = _aging_schedule(period_rows, end, gl)
     elif key in IC_KEYS:
         body = _ic_schedule(db, period_rows, gl, entity_id=entity_id, year=year, month=month)

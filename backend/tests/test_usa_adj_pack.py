@@ -61,16 +61,22 @@ def test_usa_ar_ap_schedules_include_adj():
         usa = db.scalar(select(DimEntity).where(DimEntity.code == "USA"))
         ar = build_wp_schedule(db, key="ar", year=2026, month=7, entity_id=usa.id)
         ap = build_wp_schedule(db, key="ap", year=2026, month=7, entity_id=usa.id)
+        ic = build_wp_schedule(db, key="interco", year=2026, month=7, entity_id=usa.id)
         assert ar["kind"] == "aging"
         assert ap["kind"] == "aging"
+        assert ic["kind"] == "intercompany"
         ar_gl = ar.get("gl_amount", ar.get("gl"))
         ap_gl = ap.get("gl_amount", ap.get("gl"))
-        assert ar_gl > 0
-        assert ap_gl > 0
-        # STD-001 Interco AR 38,167.90
-        assert abs(ar_gl - 38167.90) < 0.05
-        # STD-002 + STD-003 AP 140,996.40 + 38,916.36
-        assert abs(ap_gl - (140996.40 + 38916.36)) < 0.05
+        # STD-001/002/003 are Interco — they must not inflate trade AR/AP.
+        assert abs(ar_gl) < 0.05
+        assert abs(ap_gl) < 0.05
+        assert ic["row_count"] >= 3
+        blob = " ".join(
+            (r.get("description") or "")
+            for r in (ic.get("unmatched") or []) + (ic.get("matched") or [])
+        ).upper()
+        assert "INTERCO" in blob
+        assert abs(ic.get("schedule_total") or 0) > 1000
     finally:
         db.close()
 

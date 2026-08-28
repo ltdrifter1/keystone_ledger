@@ -25,7 +25,7 @@ def _blob(txn: Transaction, extra: str = "") -> str:
     return f"{txn.description or ''} {txn.counterparty or ''} {txn.memo or ''} {extra}".upper()
 
 
-def _account_is_ic_leg(acct: DimAccount | None, txn: Transaction, extra: str = "") -> bool:
+def account_is_ic_leg(acct: DimAccount | None, txn: Transaction, extra: str = "") -> bool:
     """1100/2000 count only when the voucher is actually intercompany (not third-party AR/AP)."""
     if not acct:
         return False
@@ -46,7 +46,7 @@ def _iter_ic_splits(txn: Transaction, accounts: dict[int, DimAccount]):
         splits = [type("S", (), {"account_id": txn.account_id, "amount": txn.amount, "memo": txn.memo})()]
     for split in splits:
         acct = accounts.get(split.account_id)
-        if _account_is_ic_leg(acct, txn, getattr(split, "memo", "") or ""):
+        if account_is_ic_leg(acct, txn, getattr(split, "memo", "") or ""):
             yield split, acct
 
 

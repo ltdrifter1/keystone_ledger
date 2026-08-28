@@ -10,6 +10,7 @@ from pathlib import Path
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.engines.working_papers import balance_sheet_layout_spec
 from app.models import (
     BankAccount,
     DimAccount,
@@ -260,48 +261,7 @@ def _seed_report_layouts(db: Session, by_code: dict[str, DimAccount]) -> None:
             )
         )
 
-    bs_layout = [
-        ("BS_ASSETS", "Assets", "asset", None, None, None, 0, True, False, 10),
-        ("BS_CASH", "Cash", "asset", acct("1000"), None, None, 1, False, False, 20),
-        ("BS_AR", "Accounts Receivable", "asset", acct("1100"), None, None, 1, False, False, 30),
-        ("BS_INV", "Inventory", "asset", acct("1200"), None, None, 1, False, False, 40),
-        ("BS_PREPAID", "Prepaid Expenses", "asset", acct("1300"), None, None, 1, False, False, 50),
-        ("BS_FA", "Property & Equipment", "asset", acct("1400"), None, None, 1, False, False, 60),
-        (
-            "BS_TOT_ASSETS",
-            "Total Assets",
-            "asset",
-            None,
-            None,
-            "BS_CASH + BS_AR + BS_INV + BS_PREPAID + BS_FA",
-            0,
-            True,
-            True,
-            70,
-        ),
-        ("BS_LIAB", "Liabilities", "liability", None, None, None, 0, True, False, 80),
-        ("BS_AP", "Accounts Payable", "liability", acct("2000"), None, None, 1, False, False, 90),
-        ("BS_IC", "Due to / From Intercompany", "liability", acct("2100"), None, None, 1, False, False, 100),
-        ("BS_UNEARNED", "Unearned Revenue", "liability", acct("2200"), None, None, 1, False, False, 110),
-        ("BS_TAX", "Taxes Payable", "liability", acct("2300"), None, None, 1, False, False, 120),
-        ("BS_SH_LOAN", "Shareholder Loan", "liability", acct("2400"), None, None, 1, False, False, 130),
-        (
-            "BS_TOT_LIAB",
-            "Total Liabilities",
-            "liability",
-            None,
-            None,
-            "BS_AP + BS_IC + BS_UNEARNED + BS_TAX + BS_SH_LOAN",
-            0,
-            True,
-            True,
-            140,
-        ),
-        ("BS_EQ_HDR", "Equity", "equity", None, None, None, 0, True, False, 150),
-        ("BS_EQUITY", "Retained Earnings", "equity", acct("3000"), None, None, 1, False, False, 160),
-        ("BS_DRAWS", "Owner Contributions / Draws", "equity", acct("3100"), None, None, 1, False, False, 170),
-        ("BS_TOT_EQUITY", "Total Equity", "equity", None, None, "BS_EQUITY + BS_DRAWS", 0, True, True, 180),
-    ]
+    bs_layout = balance_sheet_layout_spec(by_code)
     for code, label, section, acct_id, type_f, formula, indent, bold, total, order in bs_layout:
         db.add(
             DimReportLayout(
@@ -316,5 +276,6 @@ def _seed_report_layouts(db: Session, by_code: dict[str, DimAccount]) -> None:
                 is_bold=bold,
                 is_total=total,
                 sort_order=order,
+                notes="wp:pnl_analysis" if code == "BS_CURRENT_EARNINGS" else None,
             )
         )

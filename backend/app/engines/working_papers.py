@@ -316,7 +316,7 @@ TEMPLATES: list[WorkingPaperTemplate] = [
             "Variance commentary",
             "Equity bridge schedule",
         ],
-        line_codes=["NI", "NET_INCOME", "TOT_REV", "TOT_EXP", "REV", "EXP"],
+        line_codes=["NI", "NET_INCOME", "TOT_REV", "TOT_EXP", "REV", "EXP", "BS_CURRENT_EARNINGS"],
         account_codes=[
             "4000",
             "4100",
@@ -402,10 +402,99 @@ _REQUIRED_ACCOUNTS = [
 ]
 
 
+def balance_sheet_layout_spec(by_code: dict[str, DimAccount]) -> list[tuple]:
+    """Canonical BS rows: current earnings close the equation without a year-end JE."""
+
+    def acct(*codes: str):
+        for c in codes:
+            if c in by_code:
+                return by_code[c].id
+        return None
+
+    return [
+        ("BS_ASSETS", "Assets", "asset", None, None, None, 0, True, False, 10),
+        ("BS_CASH", "Cash", "asset", acct("1000"), None, None, 1, False, False, 20),
+        ("BS_AR", "Accounts Receivable", "asset", acct("1100"), None, None, 1, False, False, 30),
+        ("BS_INV", "Inventory", "asset", acct("1200"), None, None, 1, False, False, 40),
+        ("BS_PREPAID", "Prepaid Expenses", "asset", acct("1300"), None, None, 1, False, False, 50),
+        ("BS_FA", "Property & Equipment", "asset", acct("1400"), None, None, 1, False, False, 60),
+        (
+            "BS_TOT_ASSETS",
+            "Total Assets",
+            "asset",
+            None,
+            None,
+            "BS_CASH + BS_AR + BS_INV + BS_PREPAID + BS_FA",
+            0,
+            True,
+            True,
+            70,
+        ),
+        ("BS_LIAB", "Liabilities", "liability", None, None, None, 0, True, False, 80),
+        ("BS_AP", "Accounts Payable", "liability", acct("2000"), None, None, 1, False, False, 90),
+        ("BS_IC", "Due to / From Intercompany", "liability", acct("2100"), None, None, 1, False, False, 100),
+        ("BS_UNEARNED", "Unearned Revenue", "liability", acct("2200"), None, None, 1, False, False, 110),
+        ("BS_TAX", "Taxes Payable", "liability", acct("2300"), None, None, 1, False, False, 120),
+        ("BS_SH_LOAN", "Shareholder Loan", "liability", acct("2400"), None, None, 1, False, False, 130),
+        (
+            "BS_TOT_LIAB",
+            "Total Liabilities",
+            "liability",
+            None,
+            None,
+            "BS_AP + BS_IC + BS_UNEARNED + BS_TAX + BS_SH_LOAN",
+            0,
+            True,
+            True,
+            140,
+        ),
+        ("BS_EQ_HDR", "Equity", "equity", None, None, None, 0, True, False, 150),
+        ("BS_EQUITY", "Retained Earnings", "equity", acct("3000"), None, None, 1, False, False, 160),
+        ("BS_DRAWS", "Owner Contributions / Draws", "equity", acct("3100"), None, None, 1, False, False, 170),
+        (
+            "BS_CURRENT_EARNINGS",
+            "Current earnings",
+            "equity",
+            None,
+            None,
+            None,
+            1,
+            False,
+            False,
+            175,
+        ),
+        (
+            "BS_TOT_EQUITY",
+            "Total Equity",
+            "equity",
+            None,
+            None,
+            "BS_EQUITY + BS_DRAWS + BS_CURRENT_EARNINGS",
+            0,
+            True,
+            True,
+            180,
+        ),
+        (
+            "BS_TOT_L_AND_E",
+            "Total liabilities and equity",
+            "totals",
+            None,
+            None,
+            "BS_TOT_LIAB + BS_TOT_EQUITY",
+            0,
+            True,
+            True,
+            190,
+        ),
+    ]
+
+
 def ensure_working_paper_foundation(db: Session) -> dict[str, int]:
     """Idempotently ensure CoA accounts and BS layout lines exist for WP sections."""
     created_accounts = 0
     created_layouts = 0
+    updated_layouts = 0
 
     existing = {a.code: a for a in db.scalars(select(DimAccount)).all()}
     for code, name, acct_type, statement, normal, is_cash, is_ic, sort_order in _REQUIRED_ACCOUNTS:
@@ -427,46 +516,53 @@ def ensure_working_paper_foundation(db: Session) -> dict[str, int]:
     by_code = {a.code: a for a in db.scalars(select(DimAccount)).all()}
 
     existing_bs = {
-        row.line_code
+        row.line_code: row
         for row in db.scalars(
             select(DimReportLayout).where(DimReportLayout.report_type == "balance_sheet")
         ).all()
     }
 
-    bs_layout = [
-        ("BS_ASSETS", "Assets", "asset", None, None, None, 0, True, False, 10),
-        ("BS_CASH", "Cash", "asset", by_code["1000"].id, None, None, 1, False, False, 20),
-        ("BS_AR", "Accounts Receivable", "asset", by_code["1100"].id, None, None, 1, False, False, 30),
-        ("BS_INV", "Inventory", "asset", by_code["1200"].id, None, None, 1, False, False, 40),
-        ("BS_PREPAID", "Prepaid Expenses", "asset", by_code["1300"].id, None, None, 1, False, False, 50),
-        ("BS_FA", "Property & Equipment", "asset", by_code["1400"].id, None, None, 1, False, False, 60),
-        ("BS_TOT_ASSETS", "Total Assets", "asset", None, None, "BS_CASH + BS_AR + BS_INV + BS_PREPAID + BS_FA", 0, True, True, 70),
-        ("BS_LIAB", "Liabilities", "liability", None, None, None, 0, True, False, 80),
-        ("BS_AP", "Accounts Payable", "liability", by_code["2000"].id, None, None, 1, False, False, 90),
-        ("BS_IC", "Due to / From Intercompany", "liability", by_code["2100"].id, None, None, 1, False, False, 100),
-        ("BS_UNEARNED", "Unearned Revenue", "liability", by_code["2200"].id, None, None, 1, False, False, 110),
-        ("BS_TAX", "Taxes Payable", "liability", by_code["2300"].id, None, None, 1, False, False, 120),
-        ("BS_SH_LOAN", "Shareholder Loan", "liability", by_code["2400"].id, None, None, 1, False, False, 130),
-        (
-            "BS_TOT_LIAB",
-            "Total Liabilities",
-            "liability",
-            None,
-            None,
-            "BS_AP + BS_IC + BS_UNEARNED + BS_TAX + BS_SH_LOAN",
-            0,
-            True,
-            True,
-            140,
-        ),
-        ("BS_EQ_HDR", "Equity", "equity", None, None, None, 0, True, False, 150),
-        ("BS_EQUITY", "Retained Earnings", "equity", by_code["3000"].id, None, None, 1, False, False, 160),
-        ("BS_DRAWS", "Owner Contributions / Draws", "equity", by_code["3100"].id, None, None, 1, False, False, 170),
-        ("BS_TOT_EQUITY", "Total Equity", "equity", None, None, "BS_EQUITY + BS_DRAWS", 0, True, True, 180),
-    ]
-
-    for code, label, section, acct_id, type_f, formula, indent, bold, total, order in bs_layout:
+    for code, label, section, acct_id, type_f, formula, indent, bold, total, order in balance_sheet_layout_spec(
+        by_code
+    ):
+        notes = None
+        tmpl = find_template(line_code=code)
+        if tmpl:
+            notes = f"wp:{tmpl.key}"
+        if code == "BS_CURRENT_EARNINGS":
+            notes = "wp:pnl_analysis"
         if code in existing_bs:
+            row = existing_bs[code]
+            changed = False
+            if row.line_label != label:
+                row.line_label = label
+                changed = True
+            if row.calc_formula != formula:
+                row.calc_formula = formula
+                changed = True
+            if row.sort_order != order:
+                row.sort_order = order
+                changed = True
+            if row.account_id != acct_id:
+                row.account_id = acct_id
+                changed = True
+            if row.section != section:
+                row.section = section
+                changed = True
+            if row.indent_level != indent:
+                row.indent_level = indent
+                changed = True
+            if row.is_bold != bold:
+                row.is_bold = bold
+                changed = True
+            if row.is_total != total:
+                row.is_total = total
+                changed = True
+            if notes and row.notes != notes:
+                row.notes = notes
+                changed = True
+            if changed:
+                updated_layouts += 1
             continue
         db.add(
             DimReportLayout(
@@ -481,7 +577,7 @@ def ensure_working_paper_foundation(db: Session) -> dict[str, int]:
                 is_bold=bold,
                 is_total=total,
                 sort_order=order,
-                notes=f"wp:{find_template(line_code=code).key}" if find_template(line_code=code) else None,
+                notes=notes,
             )
         )
         created_layouts += 1
@@ -496,9 +592,10 @@ def ensure_working_paper_foundation(db: Session) -> dict[str, int]:
     if ni and not ni.notes:
         ni.notes = "wp:pnl_analysis"
 
-    if created_accounts or created_layouts:
-        db.commit()
-    else:
-        db.commit()
+    db.commit()
 
-    return {"accounts_created": created_accounts, "layouts_created": created_layouts}
+    return {
+        "accounts_created": created_accounts,
+        "layouts_created": created_layouts,
+        "layouts_updated": updated_layouts,
+    }

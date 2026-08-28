@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Iterable, Optional
@@ -10,7 +11,8 @@ from sqlalchemy.orm import Session, joinedload
 
 from app.engines.fx import translate_amount
 from app.config import get_settings
-from app.models import DimAccount, DimReportLayout, DimScenario, Transaction, TransactionSplit
+from app.engines.intercompany import account_is_ic_leg
+from app.models import DimAccount, DimEntity, DimReportLayout, DimScenario, Transaction
 from app.schemas.reports import (
     AnalyticsKpi,
     AnalyticsPack,
@@ -19,6 +21,15 @@ from app.schemas.reports import (
     ReportLine,
     ReportOut,
 )
+
+FYE_MONTH = 7  # Fiscal year-end 31 July
+BALANCE_TOLERANCE = Decimal("0.02")
+CURRENT_EARNINGS_CODE = "BS_CURRENT_EARNINGS"
+TRADE_AR_CODE = "BS_AR"
+TRADE_AP_CODE = "BS_AP"
+IC_LINE_CODE = "BS_IC"
+PNL_TITLE = "Profit & Loss"
+BS_TITLE = "Balance Sheet"
 
 
 def _month_end(year: int, month: int) -> date:
@@ -39,23 +50,32 @@ def _safe_replace_year(d: date, year: int) -> date:
         return date(year, d.month, 28)
 
 
+def _pretty_date(d: date) -> str:
+    return f"{d.day} {d.strftime('%B %Y')}"
+
+
+def fiscal_year_start(year: int, month: int) -> date:
+    """First day of the fiscal year that contains year-month (FYE 31 July)."""
+    if month <= FYE_MONTH:
+        return date(year - 1, FYE_MONTH + 1, 1)
+    return date(year, FYE_MONTH + 1, 1)
+
+
 def period_label(filters: ReportFilter) -> str:
     year = filters.year or (filters.as_of_date.year if filters.as_of_date else date.today().year)
     month = filters.month or (filters.as_of_date.month if filters.as_of_date else date.today().month)
+    end = filters.as_of_date or filters.date_to or _month_end(year, month)
     if filters.report_type == "balance_sheet":
-        as_of = filters.as_of_date or _month_end(year, month)
-        return as_of.isoformat()
+        return f"As at {_pretty_date(end)}"
     if filters.period == "monthly":
-        return f"{year}-{month:02d}"
+        return f"Month ended {_pretty_date(_month_end(year, month))}"
     if filters.period == "quarterly":
         q = filters.quarter or ((month - 1) // 3 + 1)
-        return f"{year} Q{q}"
+        return f"Quarter ended {_pretty_date(_month_end(year, q * 3))}"
     if filters.period == "ytd":
-        end = filters.date_to or filters.as_of_date or _month_end(year, month)
-        return f"YTD {end.isoformat()}"
-    start = filters.date_from or date(year, 1, 1)
-    end = filters.date_to or filters.as_of_date or date.today()
-    return f"{start.isoformat()} – {end.isoformat()}"
+        return f"Fiscal YTD ended {_pretty_date(end)}"
+    start = filters.date_from or fiscal_year_start(year, month)
+    return f"{_pretty_date(start)} – {_pretty_date(end)}"
 
 
 def prior_period_filters(filters: ReportFilter) -> ReportFilter:
@@ -123,11 +143,14 @@ def _period_bounds(filters: ReportFilter) -> tuple[date, date]:
         return date(year, start_month, 1), _month_end(year, end_month)
 
     if filters.period == "ytd":
-        end = filters.date_to or filters.as_of_date or today
-        return date(year, 1, 1), end
+        month = filters.month or (filters.as_of_date.month if filters.as_of_date else today.month)
+        year = filters.year or (filters.as_of_date.year if filters.as_of_date else today.year)
+        end = filters.date_to or filters.as_of_date or _month_end(year, month)
+        return fiscal_year_start(year, month), end
 
     # custom
-    start = filters.date_from or date(year, 1, 1)
+    month = filters.month or today.month
+    start = filters.date_from or fiscal_year_start(year, month)
     end = filters.date_to or filters.as_of_date or today
     return start, end
 
@@ -180,24 +203,43 @@ def _iter_fact_lines(
             yield txn, txn.account_id, txn.department_id, Decimal(txn.amount)
 
 
-def aggregate_by_account(
+def _fact_memo(txn: Transaction, account_id: int, amount: Decimal) -> str:
+    if txn.is_split and txn.splits:
+        for split in txn.splits:
+            if split.account_id == account_id:
+                return split.memo or ""
+    return txn.memo or ""
+
+
+@dataclass
+class AccountBundle:
+    totals: dict[int, Decimal]
+    ic_totals: dict[int, Decimal]
+    fx_missing: bool = False
+    fx_missing_pairs: list[str] = field(default_factory=list)
+
+
+def aggregate_account_bundle(
     db: Session,
     filters: ReportFilter,
     *,
     balance_sheet: bool = False,
-) -> dict[int, Decimal]:
-    """Return {account_id: amount} in reporting currency."""
+) -> AccountBundle:
+    """Account totals in reporting currency, with IC legs split out of 1100/2000."""
     settings = get_settings()
     reporting_currency = filters.reporting_currency or settings.default_reporting_currency
+    accounts = {a.id: a for a in db.scalars(select(DimAccount)).all()}
 
     if balance_sheet:
-        # Cumulative through as_of
         date_from = date(2000, 1, 1)
         date_to = filters.as_of_date or filters.date_to or date.today()
     else:
         date_from, date_to = _period_bounds(filters)
 
     totals: dict[int, Decimal] = defaultdict(lambda: Decimal("0"))
+    ic_totals: dict[int, Decimal] = defaultdict(lambda: Decimal("0"))
+    missing_pairs: list[str] = []
+    seen_missing: set[str] = set()
 
     for txn, account_id, _dept, amount in _iter_fact_lines(
         db,
@@ -207,7 +249,7 @@ def aggregate_by_account(
         entity_ids=filters.entity_ids,
         department_ids=filters.department_ids,
     ):
-        translated, _ = translate_amount(
+        translated = translate_amount(
             db,
             amount=amount,
             from_currency=txn.currency,
@@ -215,9 +257,33 @@ def aggregate_by_account(
             as_of=txn.txn_date,
             rate_type="average" if not balance_sheet else "closing",
         )
-        totals[account_id] += translated
+        if translated.missing:
+            pair = f"{txn.currency}→{reporting_currency}"
+            if pair not in seen_missing:
+                seen_missing.add(pair)
+                missing_pairs.append(pair)
+        totals[account_id] += translated.amount
+        acct = accounts.get(account_id)
+        extra = _fact_memo(txn, account_id, amount)
+        if account_is_ic_leg(acct, txn, extra):
+            ic_totals[account_id] += translated.amount
 
-    return dict(totals)
+    return AccountBundle(
+        totals=dict(totals),
+        ic_totals=dict(ic_totals),
+        fx_missing=bool(missing_pairs),
+        fx_missing_pairs=missing_pairs,
+    )
+
+
+def aggregate_by_account(
+    db: Session,
+    filters: ReportFilter,
+    *,
+    balance_sheet: bool = False,
+) -> dict[int, Decimal]:
+    """Return {account_id: amount} in reporting currency."""
+    return aggregate_account_bundle(db, filters, balance_sheet=balance_sheet).totals
 
 
 def _signed_amount(account: DimAccount, amount: Decimal, report_type: str) -> Decimal:
@@ -237,16 +303,62 @@ def _signed_amount(account: DimAccount, amount: Decimal, report_type: str) -> De
     return amount
 
 
+def _pnl_account_ids(accounts: dict[int, DimAccount]) -> list[int]:
+    return [a.id for a in accounts.values() if a.account_type in ("revenue", "expense") and a.is_active]
+
+
 def _compute_layout_amount(
     layout: DimReportLayout,
     totals: dict[int, Decimal],
     accounts: dict[int, DimAccount],
     report_type: str,
     line_amounts: dict[str, Decimal],
+    *,
+    ic_totals: dict[int, Decimal] | None = None,
+    overrides: dict[str, Decimal] | None = None,
 ) -> tuple[Decimal, list[int], str | None]:
     drill_ids: list[int] = []
     type_filter = layout.account_type_filter
     amount = Decimal("0")
+    ic_totals = ic_totals or {}
+    accounts_by_code = {a.code: a for a in accounts.values()}
+
+    if overrides and layout.line_code in overrides:
+        amount = overrides[layout.line_code]
+        if layout.line_code == CURRENT_EARNINGS_CODE:
+            drill_ids = _pnl_account_ids(accounts)
+        return amount, drill_ids, type_filter
+
+    if layout.line_code == TRADE_AR_CODE and layout.account_id:
+        acct = accounts.get(layout.account_id)
+        raw = totals.get(layout.account_id, Decimal("0")) - ic_totals.get(layout.account_id, Decimal("0"))
+        amount = _signed_amount(acct, raw, report_type) if acct else raw
+        drill_ids = [layout.account_id]
+        return amount, drill_ids, type_filter
+
+    if layout.line_code == TRADE_AP_CODE and layout.account_id:
+        acct = accounts.get(layout.account_id)
+        raw = totals.get(layout.account_id, Decimal("0")) - ic_totals.get(layout.account_id, Decimal("0"))
+        amount = _signed_amount(acct, raw, report_type) if acct else raw
+        drill_ids = [layout.account_id]
+        return amount, drill_ids, type_filter
+
+    if layout.line_code == IC_LINE_CODE:
+        ic_acct = accounts.get(layout.account_id) if layout.account_id else accounts_by_code.get("2100")
+        raw_2100 = totals.get(ic_acct.id, Decimal("0")) if ic_acct else Decimal("0")
+        amount = _signed_amount(ic_acct, raw_2100, report_type) if ic_acct else raw_2100
+        ar = accounts_by_code.get("1100")
+        ap = accounts_by_code.get("2000")
+        if ar:
+            # Due-from (asset) nets against due-to on the IC liability line.
+            amount -= _signed_amount(ar, ic_totals.get(ar.id, Decimal("0")), report_type)
+            drill_ids.append(ar.id)
+        if ap:
+            amount += _signed_amount(ap, ic_totals.get(ap.id, Decimal("0")), report_type)
+            drill_ids.append(ap.id)
+        if ic_acct:
+            drill_ids.append(ic_acct.id)
+        return amount, drill_ids, type_filter
 
     if layout.account_id:
         raw = totals.get(layout.account_id, Decimal("0"))
@@ -266,9 +378,7 @@ def _compute_layout_amount(
     elif layout.calc_formula:
         amount = _eval_formula(layout.calc_formula, line_amounts)
         if layout.line_code in ("NI", "NET_INCOME") or "NET" in (layout.line_label or "").upper():
-            drill_ids = [
-                a.id for a in accounts.values() if a.account_type in ("revenue", "expense") and a.is_active
-            ]
+            drill_ids = _pnl_account_ids(accounts)
         elif layout.section in ("revenue", "expense", "asset", "liability", "equity"):
             drill_ids = [a.id for a in accounts.values() if a.account_type == layout.section and a.is_active]
             type_filter = layout.section
@@ -282,10 +392,21 @@ def _series_amount(
     accounts: dict[int, DimAccount],
     report_type: str,
     line_amounts: dict[str, Decimal],
+    *,
+    ic_totals: dict[int, Decimal] | None = None,
+    overrides: dict[str, Decimal] | None = None,
 ) -> Decimal | None:
     if totals is None:
         return None
-    amount, _, _ = _compute_layout_amount(layout, totals, accounts, report_type, line_amounts)
+    amount, _, _ = _compute_layout_amount(
+        layout,
+        totals,
+        accounts,
+        report_type,
+        line_amounts,
+        ic_totals=ic_totals,
+        overrides=overrides,
+    )
     line_amounts[layout.line_code] = amount
     return amount
 
@@ -358,33 +479,131 @@ def _flux_items(report: ReportOut) -> list[FluxItem]:
     return items
 
 
+def _entity_cover_name(db: Session, filters: ReportFilter) -> str:
+    if not filters.entity_ids:
+        return "All entities" if filters.consolidate else "Entity"
+    rows = list(db.scalars(select(DimEntity).where(DimEntity.id.in_(filters.entity_ids))).all())
+    if not rows:
+        return "Entity"
+    if len(rows) == 1:
+        return rows[0].name or rows[0].code
+    return " + ".join(e.code for e in rows)
+
+
+def _statement_title(report_type: str) -> str:
+    return {
+        "income_statement": PNL_TITLE,
+        "balance_sheet": BS_TITLE,
+        "cash_flow": "Cash Flow Statement",
+    }.get(report_type, report_type)
+
+
+def _ytd_filters(filters: ReportFilter) -> ReportFilter:
+    year = filters.year or (filters.as_of_date.year if filters.as_of_date else date.today().year)
+    month = filters.month or (filters.as_of_date.month if filters.as_of_date else date.today().month)
+    end = filters.as_of_date or filters.date_to or _month_end(year, month)
+    start = fiscal_year_start(year, month)
+    return filters.model_copy(
+        update={
+            "report_type": "income_statement",
+            "period": "ytd",
+            "year": year,
+            "month": month,
+            "date_from": start,
+            "date_to": end,
+            "as_of_date": end,
+            "compare_prior_period": False,
+            "compare_prior_year": False,
+            "compare_budget": False,
+            "compare_scenario_id": None,
+        }
+    )
+
+
+def _pnl_net_income(
+    db: Session,
+    filters: ReportFilter,
+    accounts: dict[int, DimAccount],
+    *,
+    totals: dict[int, Decimal] | None = None,
+) -> Decimal:
+    ytd = _ytd_filters(filters)
+    if totals is None:
+        totals = aggregate_by_account(db, ytd, balance_sheet=False)
+    layouts = list(
+        db.scalars(
+            select(DimReportLayout)
+            .where(DimReportLayout.report_type == "income_statement")
+            .order_by(DimReportLayout.sort_order.asc())
+        )
+    )
+    if not layouts:
+        rev = Decimal("0")
+        exp = Decimal("0")
+        for acct in accounts.values():
+            raw = totals.get(acct.id, Decimal("0"))
+            if acct.account_type == "revenue":
+                rev += _signed_amount(acct, raw, "income_statement")
+            elif acct.account_type == "expense":
+                exp += _signed_amount(acct, raw, "income_statement")
+        return rev - exp
+    line_amounts: dict[str, Decimal] = {}
+    for layout in layouts:
+        amount, _, _ = _compute_layout_amount(layout, totals, accounts, "income_statement", line_amounts)
+        line_amounts[layout.line_code] = amount
+    for code in ("NI", "NET_INCOME"):
+        if code in line_amounts:
+            return line_amounts[code]
+    return line_amounts.get("TOT_REV", Decimal("0")) - line_amounts.get("TOT_EXP", Decimal("0"))
+
+
 def build_report(db: Session, filters: ReportFilter) -> ReportOut:
     report_type = filters.report_type
     balance_sheet = report_type == "balance_sheet"
-    totals = aggregate_by_account(db, filters, balance_sheet=balance_sheet)
+    bundle = aggregate_account_bundle(db, filters, balance_sheet=balance_sheet)
+    totals = bundle.totals
+    ic_totals = bundle.ic_totals
+    fx_missing = bundle.fx_missing
+    fx_missing_pairs = list(bundle.fx_missing_pairs)
 
-    compare_totals: dict[int, Decimal] | None = None
+    compare_bundle: AccountBundle | None = None
     if filters.compare_scenario_id:
         compare_filters = filters.model_copy(update={"scenario_id": filters.compare_scenario_id})
-        compare_totals = aggregate_by_account(db, compare_filters, balance_sheet=balance_sheet)
+        compare_bundle = aggregate_account_bundle(db, compare_filters, balance_sheet=balance_sheet)
+        fx_missing = fx_missing or compare_bundle.fx_missing
+        fx_missing_pairs += [p for p in compare_bundle.fx_missing_pairs if p not in fx_missing_pairs]
+    compare_totals = compare_bundle.totals if compare_bundle else None
+    compare_ic = compare_bundle.ic_totals if compare_bundle else None
 
-    prior_totals: dict[int, Decimal] | None = None
+    prior_bundle: AccountBundle | None = None
     prior_filters = None
     if filters.compare_prior_period:
         prior_filters = prior_period_filters(filters)
-        prior_totals = aggregate_by_account(db, prior_filters, balance_sheet=balance_sheet)
+        prior_bundle = aggregate_account_bundle(db, prior_filters, balance_sheet=balance_sheet)
+        fx_missing = fx_missing or prior_bundle.fx_missing
+        fx_missing_pairs += [p for p in prior_bundle.fx_missing_pairs if p not in fx_missing_pairs]
+    prior_totals = prior_bundle.totals if prior_bundle else None
+    prior_ic = prior_bundle.ic_totals if prior_bundle else None
 
-    py_totals: dict[int, Decimal] | None = None
+    py_bundle: AccountBundle | None = None
     py_filters = None
     if filters.compare_prior_year:
         py_filters = prior_year_filters(filters)
-        py_totals = aggregate_by_account(db, py_filters, balance_sheet=balance_sheet)
+        py_bundle = aggregate_account_bundle(db, py_filters, balance_sheet=balance_sheet)
+        fx_missing = fx_missing or py_bundle.fx_missing
+        fx_missing_pairs += [p for p in py_bundle.fx_missing_pairs if p not in fx_missing_pairs]
+    py_totals = py_bundle.totals if py_bundle else None
+    py_ic = py_bundle.ic_totals if py_bundle else None
 
-    budget_totals: dict[int, Decimal] | None = None
+    budget_bundle: AccountBundle | None = None
     budget_id = _budget_scenario_id(db) if filters.compare_budget else None
     if budget_id:
         budget_filters = filters.model_copy(update={"scenario_id": budget_id})
-        budget_totals = aggregate_by_account(db, budget_filters, balance_sheet=balance_sheet)
+        budget_bundle = aggregate_account_bundle(db, budget_filters, balance_sheet=balance_sheet)
+        fx_missing = fx_missing or budget_bundle.fx_missing
+        fx_missing_pairs += [p for p in budget_bundle.fx_missing_pairs if p not in fx_missing_pairs]
+    budget_totals = budget_bundle.totals if budget_bundle else None
+    budget_ic = budget_bundle.ic_totals if budget_bundle else None
 
     accounts = {a.id: a for a in db.scalars(select(DimAccount)).all()}
     layouts = list(
@@ -394,6 +613,26 @@ def build_report(db: Session, filters: ReportFilter) -> ReportOut:
             .order_by(DimReportLayout.sort_order.asc())
         )
     )
+
+    earnings_overrides: dict[str, Decimal] = {}
+    compare_overrides: dict[str, Decimal] = {}
+    prior_overrides: dict[str, Decimal] = {}
+    py_overrides: dict[str, Decimal] = {}
+    budget_overrides: dict[str, Decimal] = {}
+    if balance_sheet:
+        earnings_overrides[CURRENT_EARNINGS_CODE] = _pnl_net_income(db, filters, accounts)
+        if compare_totals is not None:
+            compare_overrides[CURRENT_EARNINGS_CODE] = _pnl_net_income(
+                db, filters.model_copy(update={"scenario_id": filters.compare_scenario_id}), accounts
+            )
+        if prior_filters is not None:
+            prior_overrides[CURRENT_EARNINGS_CODE] = _pnl_net_income(db, prior_filters, accounts)
+        if py_filters is not None:
+            py_overrides[CURRENT_EARNINGS_CODE] = _pnl_net_income(db, py_filters, accounts)
+        if budget_id:
+            budget_overrides[CURRENT_EARNINGS_CODE] = _pnl_net_income(
+                db, filters.model_copy(update={"scenario_id": budget_id}), accounts
+            )
 
     if not layouts:
         report = _synthesize_report(
@@ -405,8 +644,17 @@ def build_report(db: Session, filters: ReportFilter) -> ReportOut:
             prior_totals=prior_totals,
             py_totals=py_totals,
             budget_totals=budget_totals,
+            current_earnings=earnings_overrides.get(CURRENT_EARNINGS_CODE),
         )
-        return _finalize_report(report, filters, prior_filters, py_filters)
+        return _finalize_report(
+            report,
+            filters,
+            prior_filters,
+            py_filters,
+            db=db,
+            fx_missing=fx_missing,
+            fx_missing_pairs=fx_missing_pairs,
+        )
 
     line_amounts: dict[str, Decimal] = {}
     compare_line_amounts: dict[str, Decimal] = {}
@@ -420,19 +668,51 @@ def build_report(db: Session, filters: ReportFilter) -> ReportOut:
 
     for layout in layouts:
         amount, drill_ids, type_filter = _compute_layout_amount(
-            layout, totals, accounts, report_type, line_amounts
+            layout,
+            totals,
+            accounts,
+            report_type,
+            line_amounts,
+            ic_totals=ic_totals,
+            overrides=earnings_overrides,
         )
         line_amounts[layout.line_code] = amount
 
         compare_amount = _series_amount(
-            layout, compare_totals, accounts, report_type, compare_line_amounts
+            layout,
+            compare_totals,
+            accounts,
+            report_type,
+            compare_line_amounts,
+            ic_totals=compare_ic,
+            overrides=compare_overrides or None,
         )
         prior_amount = _series_amount(
-            layout, prior_totals, accounts, report_type, prior_line_amounts
+            layout,
+            prior_totals,
+            accounts,
+            report_type,
+            prior_line_amounts,
+            ic_totals=prior_ic,
+            overrides=prior_overrides or None,
         )
-        py_amount = _series_amount(layout, py_totals, accounts, report_type, py_line_amounts)
+        py_amount = _series_amount(
+            layout,
+            py_totals,
+            accounts,
+            report_type,
+            py_line_amounts,
+            ic_totals=py_ic,
+            overrides=py_overrides or None,
+        )
         budget_amount = _series_amount(
-            layout, budget_totals, accounts, report_type, budget_line_amounts
+            layout,
+            budget_totals,
+            accounts,
+            report_type,
+            budget_line_amounts,
+            ic_totals=budget_ic,
+            overrides=budget_overrides or None,
         )
 
         variance = (amount - compare_amount) if compare_amount is not None else None
@@ -450,7 +730,7 @@ def build_report(db: Session, filters: ReportFilter) -> ReportOut:
         tmpl = find_template(line_code=layout.line_code, account_codes=acct_codes)
         if tmpl and not layout.is_total:
             wp_ref = tmpl.wp_ref
-        elif tmpl and layout.line_code in ("NI", "NET_INCOME", "TOT_REV", "TOT_EXP"):
+        elif tmpl and layout.line_code in ("NI", "NET_INCOME", "TOT_REV", "TOT_EXP", CURRENT_EARNINGS_CODE):
             wp_ref = tmpl.wp_ref
         drillable = bool(drill_ids)
 
@@ -486,20 +766,23 @@ def build_report(db: Session, filters: ReportFilter) -> ReportOut:
             )
         )
 
-    title_map = {
-        "income_statement": "Income Statement",
-        "balance_sheet": "Balance Sheet",
-        "cash_flow": "Cash Flow Statement",
-    }
     report = ReportOut(
         report_type=report_type,
-        title=title_map.get(report_type, report_type),
+        title=_statement_title(report_type),
         filters=filters,
         lines=lines,
         generated_at=datetime.utcnow().isoformat() + "Z",
         currency=filters.reporting_currency,
     )
-    return _finalize_report(report, filters, prior_filters, py_filters)
+    return _finalize_report(
+        report,
+        filters,
+        prior_filters,
+        py_filters,
+        db=db,
+        fx_missing=fx_missing,
+        fx_missing_pairs=fx_missing_pairs,
+    )
 
 
 def _eval_formula(formula: str, line_amounts: dict[str, Decimal]) -> Decimal:
@@ -537,6 +820,7 @@ def _synthesize_report(
     prior_totals: dict[int, Decimal] | None = None,
     py_totals: dict[int, Decimal] | None = None,
     budget_totals: dict[int, Decimal] | None = None,
+    current_earnings: Decimal | None = None,
 ) -> ReportOut:
     type_order = {
         "income_statement": ["revenue", "expense"],
@@ -676,14 +960,57 @@ def _synthesize_report(
             )
         )
 
-    title_map = {
-        "income_statement": "Income Statement",
-        "balance_sheet": "Balance Sheet",
-        "cash_flow": "Cash Flow Statement",
-    }
+    if filters.report_type == "balance_sheet" and current_earnings is not None:
+        eq = section_totals.get("equity", Decimal("0"))
+        liab = section_totals.get("liability", Decimal("0"))
+        tot_eq = eq + current_earnings
+        lines.append(
+            ReportLine(
+                line_code=CURRENT_EARNINGS_CODE,
+                line_label="Current earnings",
+                section="equity",
+                amount=current_earnings,
+                indent_level=1,
+                drillable=True,
+                account_ids=_pnl_account_ids(accounts),
+                wp_ref="Z.1",
+            )
+        )
+        lines.append(
+            ReportLine(
+                line_code="BS_TOT_EQUITY",
+                line_label="Total Equity",
+                section="equity",
+                amount=tot_eq,
+                is_bold=True,
+                is_total=True,
+            )
+        )
+        lines.append(
+            ReportLine(
+                line_code="BS_TOT_L_AND_E",
+                line_label="Total liabilities and equity",
+                section="totals",
+                amount=liab + tot_eq,
+                is_bold=True,
+                is_total=True,
+            )
+        )
+        assets = section_totals.get("asset", Decimal("0"))
+        lines.append(
+            ReportLine(
+                line_code="BS_TOT_ASSETS",
+                line_label="Total Assets",
+                section="asset",
+                amount=assets,
+                is_bold=True,
+                is_total=True,
+            )
+        )
+
     return ReportOut(
         report_type=filters.report_type,
-        title=title_map.get(filters.report_type, filters.report_type),
+        title=_statement_title(filters.report_type),
         filters=filters,
         lines=lines,
         generated_at=datetime.utcnow().isoformat() + "Z",
@@ -696,6 +1023,10 @@ def _finalize_report(
     filters: ReportFilter,
     prior_filters: ReportFilter | None,
     py_filters: ReportFilter | None,
+    *,
+    db: Session | None = None,
+    fx_missing: bool = False,
+    fx_missing_pairs: list[str] | None = None,
 ) -> ReportOut:
     columns = ["amount"]
     if filters.compare_prior_period:
@@ -712,6 +1043,28 @@ def _finalize_report(
     report.budget_label = "Budget" if filters.compare_budget else None
     report.columns = columns
     report.flux = _flux_items(report)
+    report.fx_missing = fx_missing
+    report.fx_missing_pairs = fx_missing_pairs or []
+    entity_name = _entity_cover_name(db, filters) if db is not None else "Entity"
+    report.entity_name = entity_name
+    report.cover_title = (
+        f"{entity_name} · {report.title} · {report.period_label} · {report.currency}"
+    )
+    if report.report_type == "balance_sheet":
+        assets = _line_by_codes(report, ("BS_TOT_ASSETS", "TOT_ASSET"))
+        le = _line_by_codes(report, ("BS_TOT_L_AND_E",))
+        if assets is None:
+            tot_a = next((l for l in report.lines if l.line_code == "TOT_ASSET"), None)
+            assets = tot_a
+        if assets is not None and le is not None:
+            report.balance_difference = assets.amount - le.amount
+            report.is_balanced = abs(report.balance_difference) < BALANCE_TOLERANCE
+        elif assets is not None:
+            liab = _line_by_codes(report, ("BS_TOT_LIAB", "TOT_LIABILITY"))
+            eq = _line_by_codes(report, ("BS_TOT_EQUITY", "TOT_EQUITY"))
+            if liab is not None and eq is not None:
+                report.balance_difference = assets.amount - (liab.amount + eq.amount)
+                report.is_balanced = abs(report.balance_difference) < BALANCE_TOLERANCE
     return report
 
 
@@ -723,7 +1076,7 @@ def _line_by_codes(report: ReportOut, codes: tuple[str, ...]) -> ReportLine | No
 
 
 def build_analytics_pack(db: Session, filters: ReportFilter) -> AnalyticsPack:
-    """CaseWare-style analytical review: IS + BS + CF with flux vs prior period."""
+    """Analytical review: Profit & Loss + Balance Sheet with flux vs prior period."""
     base = filters.model_copy(
         update={
             "compare_prior_period": True,
@@ -735,7 +1088,6 @@ def build_analytics_pack(db: Session, filters: ReportFilter) -> AnalyticsPack:
     for rtype, period in (
         ("income_statement", filters.period or "ytd"),
         ("balance_sheet", "monthly"),
-        ("cash_flow", filters.period or "ytd"),
     ):
         stmt_filters = base.model_copy(update={"report_type": rtype, "period": period})
         statements.append(build_report(db, stmt_filters))
@@ -810,6 +1162,18 @@ def export_statement_pack_xlsx(db: Session, filters: ReportFilter) -> bytes:
     money_fmt = '#,##0.00;(#,##0.00);"—"'
 
     def write_sheet(ws, report: ReportOut) -> None:
+        ws.append([report.cover_title or report.title])
+        ws.append([f"{report.period_label or ''} · {report.currency}"])
+        if report.report_type == "balance_sheet":
+            if report.is_balanced:
+                ws.append(["Balance check: in balance"])
+            elif report.balance_difference is not None:
+                ws.append([f"Balance check: out of balance by {float(report.balance_difference):,.2f}"])
+            else:
+                ws.append(["Balance check: n/a"])
+        if report.fx_missing:
+            ws.append([f"Missing FX rates: {', '.join(report.fx_missing_pairs)}"])
+        ws.append([])
         headers = ["Ref", "Line", "Current"]
         if report.prior_period_label:
             headers += [f"Prior ({report.prior_period_label})", "$ Var", "% Var"]
@@ -818,8 +1182,9 @@ def export_statement_pack_xlsx(db: Session, filters: ReportFilter) -> bytes:
         if report.budget_label:
             headers += ["Budget", "vs Budget"]
         ws.append(headers)
+        header_row = ws.max_row
         for col, _ in enumerate(headers, start=1):
-            cell = ws.cell(1, col)
+            cell = ws.cell(header_row, col)
             cell.font = header_font
             cell.fill = header_fill
             cell.alignment = Alignment(horizontal="center")
@@ -852,7 +1217,7 @@ def export_statement_pack_xlsx(db: Session, filters: ReportFilter) -> bytes:
         for col in range(1, len(headers) + 1):
             ws.column_dimensions[get_column_letter(col)].width = 22 if col > 1 else 10
         ws.column_dimensions["B"].width = 42
-        ws.freeze_panes = "C2"
+        ws.freeze_panes = f"C{header_row + 1}"
 
     first = True
     for stmt in pack.statements:
