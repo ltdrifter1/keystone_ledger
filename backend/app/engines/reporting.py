@@ -1414,10 +1414,17 @@ def build_analytics_pack(db: Session, filters: ReportFilter) -> AnalyticsPack:
     except ValueError:
         official = False
 
-    base = scoped.model_copy(
+    stmt_base = scoped.model_copy(
+        update={
+            "compare_prior_period": False,
+            "compare_prior_year": True,
+            "compare_budget": False,
+        }
+    )
+    flux_base = scoped.model_copy(
         update={
             "compare_prior_period": True,
-            "compare_prior_year": True,
+            "compare_prior_year": False,
             "compare_budget": False,
         }
     )
@@ -1428,12 +1435,12 @@ def build_analytics_pack(db: Session, filters: ReportFilter) -> AnalyticsPack:
             ("balance_sheet", "monthly"),
             ("equity", "ytd"),
         ):
-            stmt_filters = base.model_copy(update={"report_type": rtype, "period": period})
+            stmt_filters = stmt_base.model_copy(update={"report_type": rtype, "period": period})
             statements.append(build_official_report(db, stmt_filters))
         notes = list(statements[0].notes)
         disclaimer = PACK_DISCLAIMER
         try:
-            can_print = build_statement_diagnostics(db, base).can_print
+            can_print = build_statement_diagnostics(db, stmt_base).can_print
         except ValueError:
             can_print = False
     else:
@@ -1441,28 +1448,34 @@ def build_analytics_pack(db: Session, filters: ReportFilter) -> AnalyticsPack:
             ("income_statement", filters.period or "ytd"),
             ("balance_sheet", "monthly"),
         ):
-            stmt_filters = base.model_copy(update={"report_type": rtype, "period": period})
+            stmt_filters = stmt_base.model_copy(update={"report_type": rtype, "period": period})
             statements.append(build_report(db, stmt_filters))
         notes = []
         disclaimer = SCOPE_ERROR + " " + PACK_DISCLAIMER
         can_print = False
 
     flux: list[FluxItem] = []
-    for stmt in statements:
-        flux.extend(stmt.flux)
+    flux_reports: dict[str, ReportOut] = {}
+    for rtype, period in (
+        ("income_statement", filters.period or "ytd"),
+        ("balance_sheet", "monthly"),
+    ):
+        flux_stmt = build_report(
+            db, flux_base.model_copy(update={"report_type": rtype, "period": period})
+        )
+        flux_reports[rtype] = flux_stmt
+        flux.extend(flux_stmt.flux)
     flux.sort(key=lambda i: abs(i.variance or Decimal("0")), reverse=True)
 
-    mat_amt, mat_pct = _materiality(base)
+    mat_amt, mat_pct = _materiality(stmt_base)
     kpis: list[AnalyticsKpi] = []
-    is_rpt = statements[0]
-    bs_rpt = statements[1]
     for key, codes, label in (
         ("revenue", ("TOT_REV", "TOT_REVENUE"), "Revenue"),
         ("expense", ("TOT_EXP", "TOT_EXPENSE"), "Expenses"),
         ("net_income", ("NI", "NET_INCOME"), "Net income"),
         ("cash", ("BS_CASH", "CASH"), "Cash"),
     ):
-        src = bs_rpt if key == "cash" else is_rpt
+        src = flux_reports["balance_sheet"] if key == "cash" else flux_reports["income_statement"]
         line = _line_by_codes(src, codes)
         if not line:
             continue
@@ -1484,8 +1497,8 @@ def build_analytics_pack(db: Session, filters: ReportFilter) -> AnalyticsPack:
         )
 
     return AnalyticsPack(
-        period_label=period_label(base),
-        currency=base.reporting_currency,
+        period_label=period_label(stmt_base),
+        currency=stmt_base.reporting_currency,
         materiality_amount=mat_amt,
         materiality_pct=mat_pct,
         kpis=kpis,

@@ -68,6 +68,7 @@ def test_analytics_pack_and_export():
     is_stmt = next(s for s in body["statements"] if s["report_type"] == "income_statement")
     assert "prior_year" in is_stmt["columns"]
     assert "budget" not in is_stmt["columns"]
+    assert "prior_period" not in is_stmt["columns"]
 
     xlsx = client.post("/api/reports/export", json=filters)
     assert xlsx.status_code == 200, xlsx.text

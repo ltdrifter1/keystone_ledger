@@ -181,6 +181,7 @@ def test_official_report_has_notes_and_prior_year_default_in_pack():
         is_stmt = next(s for s in pack.statements if s.report_type == "income_statement")
         assert "prior_year" in is_stmt.columns
         assert "budget" not in is_stmt.columns
+        assert "prior_period" not in is_stmt.columns
     finally:
         db.close()
 
