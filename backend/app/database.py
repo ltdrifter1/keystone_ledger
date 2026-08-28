@@ -62,3 +62,28 @@ def _ensure_sqlite_columns() -> None:
         cols = {row[1] for row in conn.execute(text("PRAGMA table_info(bank_accounts)")).fetchall()}
         if "budget_balance" not in cols:
             conn.execute(text("ALTER TABLE bank_accounts ADD COLUMN budget_balance NUMERIC(18, 2)"))
+
+        wp_cols = {
+            row[1] for row in conn.execute(text("PRAGMA table_info(working_paper_documents)")).fetchall()
+        }
+        if wp_cols and "entity_id" not in wp_cols:
+            conn.execute(text("ALTER TABLE working_paper_documents ADD COLUMN entity_id INTEGER"))
+            conn.execute(
+                text(
+                    "UPDATE working_paper_documents SET entity_id = "
+                    "(SELECT id FROM dim_entity WHERE code = 'CAN' LIMIT 1) "
+                    "WHERE entity_id IS NULL"
+                )
+            )
+            indexes = list(conn.execute(text("PRAGMA index_list(working_paper_documents)")).fetchall())
+            for idx in indexes:
+                name = idx[1]
+                unique = idx[2]
+                if unique and name == "uq_wp_doc_period_key":
+                    conn.execute(text(f'DROP INDEX IF EXISTS "{name}"'))
+            conn.execute(
+                text(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS uq_wp_doc_period_key_entity "
+                    "ON working_paper_documents (period_year, period_month, template_key, entity_id)"
+                )
+            )

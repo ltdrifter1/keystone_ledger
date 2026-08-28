@@ -10,6 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.engines.fx import translate_amount
+from app.engines.intercompany import ic_mirror, unmatched_intercompany_count
 from app.engines.reporting import _iter_fact_lines, _signed_amount, build_report
 from app.engines.working_papers import get_template
 from app.models import DimAccount, DimEntity
@@ -105,7 +106,13 @@ def _account_ids(db: Session, template) -> list[int]:
     if template.key == "pnl_analysis":
         return [a.id for a in rows if a.account_type in ("revenue", "expense") and a.is_active]
     if template.key == "interco":
-        return [a.id for a in rows if a.is_intercompany or a.account_type in ("transfer", "intercompany")]
+        return [
+            a.id
+            for a in rows
+            if a.is_intercompany
+            or a.account_type in ("transfer", "intercompany")
+            or a.code in ("1100", "2000", "2100")
+        ]
     return ids
 
 
@@ -291,23 +298,47 @@ def _rollforward_schedule(opening_rows: list[dict], period_rows: list[dict], gl:
     }
 
 
-def _ic_schedule(rows: list[dict], gl: Decimal) -> dict:
-    matched = [r for r in rows if r["is_matched"]]
-    unmatched = [r for r in rows if not r["is_matched"]]
+def _row_is_ic(row: dict) -> bool:
+    code = row.get("account_code") or ""
+    if code == "2100":
+        return True
+    blob = f"{row.get('description') or ''} {row.get('counterparty') or ''}".upper()
+    if any(k in blob for k in ("INTERCO", "INTERCOMPANY", "IC TRANSFER", "DUE TO", "DUE FROM")):
+        return True
+    return bool(row.get("counter_entity_id"))
+
+
+def _ic_schedule(
+    db: Session,
+    rows: list[dict],
+    gl: Decimal,
+    *,
+    entity_id: int | None,
+    year: int,
+    month: int,
+) -> dict:
+    ic_rows = [r for r in rows if _row_is_ic(r)]
+    matched = [r for r in ic_rows if r["is_matched"]]
+    unmatched = [r for r in ic_rows if not r["is_matched"]]
     matched_total = sum((r["amount"] for r in matched), Decimal("0"))
     unmatched_total = sum((r["amount"] for r in unmatched), Decimal("0"))
     total = matched_total + unmatched_total
-    diff = total - gl
+    unmatched_n = unmatched_intercompany_count(db, entity_id=entity_id, year=year, month=month)
+    mirror = ic_mirror(db, entity_id=entity_id, year=year, month=month) if entity_id else None
+    mirrored = True if mirror is None else bool(mirror["is_mirrored"])
+    difference = Decimal(str(mirror["difference"])) if mirror else (total - gl)
+    is_tied = unmatched_n == 0 and mirrored
     return {
         "kind": "intercompany",
         "matched_count": len(matched),
-        "unmatched_count": len(unmatched),
+        "unmatched_count": unmatched_n,
         "matched_total": float(matched_total),
         "unmatched_total": float(unmatched_total),
-        "schedule_total": float(total),
-        "gl_amount": float(gl),
-        "difference": float(diff),
-        "is_tied": abs(diff) < Decimal("0.02") and len(unmatched) == 0,
+        "schedule_total": float(mirror["ours_net"]) if mirror else float(total),
+        "gl_amount": float(mirror["theirs_net"]) if mirror else float(gl),
+        "difference": float(difference),
+        "is_tied": is_tied,
+        "ic_mirror": mirror,
         "unmatched": [
             {
                 "transaction_id": r["transaction_id"],
@@ -328,7 +359,7 @@ def _ic_schedule(rows: list[dict], gl: Decimal) -> dict:
             }
             for r in matched[:50]
         ],
-        "row_count": len(rows),
+        "row_count": len(ic_rows),
     }
 
 
@@ -405,7 +436,7 @@ def build_wp_schedule(
         # Aging uses cumulative BS facts through period end
         body = _aging_schedule(period_rows, end, gl)
     elif key in IC_KEYS:
-        body = _ic_schedule(period_rows, gl)
+        body = _ic_schedule(db, period_rows, gl, entity_id=entity_id, year=year, month=month)
     elif key in ROLLFORWARD_KEYS:
         opening_rows = _fact_rows(
             db,
@@ -430,19 +461,28 @@ def build_wp_schedule(
         body = _lead_schedule(period_rows, gl)
 
     gate_messages: list[str] = []
-    if not body["is_tied"]:
-        gate_messages.append(
-            f"Schedule {body.get('schedule_total', 0):,.2f} ≠ statement {float(gl):,.2f}"
-        )
-    if key in IC_KEYS and body.get("unmatched_count"):
-        gate_messages.append(f"{body['unmatched_count']} unmatched intercompany item(s)")
-
-    can_prepare = body["is_tied"] or abs(Decimal(str(body.get("gl_amount") or 0))) < Decimal("0.02")
-    # Zero GL with empty schedule is preparable (nothing to evidence)
-    if abs(gl) < Decimal("0.02") and body.get("row_count", 0) == 0:
-        can_prepare = True
-        body["is_tied"] = True
-        gate_messages = []
+    if key in IC_KEYS:
+        if body.get("unmatched_count"):
+            gate_messages.append(
+                f"{body['unmatched_count']} unmatched intercompany item(s) for {year}-{month:02d} (monthly rec)"
+            )
+        mirror = body.get("ic_mirror") or {}
+        if mirror and not mirror.get("is_mirrored"):
+            gate_messages.append(
+                f"IC AR/AP mirror is off by {mirror.get('currency', 'CAD')} "
+                f"{float(mirror.get('difference') or 0):,.2f}"
+            )
+        can_prepare = bool(body["is_tied"])
+    else:
+        if not body["is_tied"]:
+            gate_messages.append(
+                f"Schedule {body.get('schedule_total', 0):,.2f} ≠ statement {float(gl):,.2f}"
+            )
+        can_prepare = body["is_tied"] or abs(Decimal(str(body.get("gl_amount") or 0))) < Decimal("0.02")
+        if abs(gl) < Decimal("0.02") and body.get("row_count", 0) == 0:
+            can_prepare = True
+            body["is_tied"] = True
+            gate_messages = []
 
     return {
         **body,

@@ -58,6 +58,8 @@ export function ClosePackPage() {
   const [kindFilter, setKindFilter] = useState(searchParams.get('filter') || '')
   const [showUnclearedOnly, setShowUnclearedOnly] = useState(searchParams.get('filter') === 'uncleared')
   const [journalOpen, setJournalOpen] = useState(false)
+  const [journalLed, setJournalLed] = useState(false)
+  const [monthLocked, setMonthLocked] = useState(false)
   const { toast, show } = useToast()
 
   useEffect(() => {
@@ -112,6 +114,17 @@ export function ClosePackPage() {
       })
       .catch((e: Error) => setError(e.message))
   }, [])
+
+  useEffect(() => {
+    if (!entityId) return
+    api
+      .entityPeriodLock(Number(entityId), Number(year), Number(month))
+      .then((lock) => {
+        setJournalLed(Boolean(lock.journal_led))
+        setMonthLocked(Boolean(lock.is_locked))
+      })
+      .catch(() => undefined)
+  }, [entityId, year, month])
 
   // Keep selected bank inside the sticky engagement entity
   useEffect(() => {
@@ -496,8 +509,9 @@ export function ClosePackPage() {
         <div>
           <h1>Work</h1>
           <p>
-            Bank desk for {entityCode ?? 'entity'} · {year}-{String(month).padStart(2, '0')}: next
-            actions → exceptions → register → lock.
+            {journalLed
+              ? `Monthly journals for ${entityCode ?? 'entity'} · ${year}-${String(month).padStart(2, '0')}: review FY vouchers, match IC, lock the month from Home.`
+              : `Bank desk for ${entityCode ?? 'entity'} · ${year}-${String(month).padStart(2, '0')}: next actions → exceptions → register → lock.`}
           </p>
         </div>
         <div className="toolbar">
@@ -512,6 +526,20 @@ export function ClosePackPage() {
       </div>
 
       {error && <div className="error">{error}</div>}
+
+      {journalLed && (
+        <section className="panel">
+          <div className="panel-header">
+            <h2>Journal-led monthly rec</h2>
+            <span className={`badge ${monthLocked ? 'ok' : ''}`}>{monthLocked ? 'month locked' : 'month open'}</span>
+          </div>
+          <p className="hint">
+            Bank recon is N/A while cash is nil. Post or review month-end journals here, match CAN↔USA
+            intercompany on the binder, then lock the month from Home. After lock, late items go through
+            post-close adj (PCA).
+          </p>
+        </section>
+      )}
 
       <div className="filters close-period-bar">
         <span className="hint">

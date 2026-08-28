@@ -71,8 +71,17 @@ def assert_txn_editable(
     if locked:
         raise PeriodLockedError(
             f"Period {locked.period_year}-{locked.period_month:02d} is locked "
-            f"(reconciliation #{locked.id}). Unlock is not available — create an adjusting entry in an open period."
+            f"(reconciliation #{locked.id}). Unlock is not available — post a post-close adjusting journal."
         )
+    if txn.entity_id and txn.source_type != "post_close_adj":
+        from app.engines.entity_close import is_entity_month_locked
+
+        gl_lock = is_entity_month_locked(db, txn.entity_id, txn.txn_date)
+        if gl_lock:
+            raise PeriodLockedError(
+                f"{gl_lock.period_year}-{gl_lock.period_month:02d} is locked for this company. "
+                "Post a post-close adjusting journal (PCA)."
+            )
 
     if txn.is_reconciled and changing_fields:
         protected = changing_fields & PROTECTED_FIELDS

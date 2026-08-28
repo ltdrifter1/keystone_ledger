@@ -1,7 +1,10 @@
 from datetime import date
 
+from sqlalchemy import select
+
 from app.database import SessionLocal, init_db
 from app.engines.binder import build_binder, get_binder_document, upsert_binder_document
+from app.models import DimEntity
 from app.services.seed import seed_if_empty
 
 
@@ -27,7 +30,7 @@ def test_binder_index_has_all_sections():
         assert "href" in cash
         assert cash["report_href"].startswith("/statements?")
         assert cash["close_href"] and cash["close_href"].startswith("/work?")
-        assert cash["close_status"] in ("in_progress", "ready", "locked")
+        assert cash["close_status"] in ("in_progress", "ready", "locked", "n_a")
         assert binder["summary"].get("cash_close") is not None
         detail = get_binder_document(db, today.year, today.month, "cash")
         assert detail["cash_schedule"] is not None
@@ -40,18 +43,19 @@ def test_binder_index_has_all_sections():
 def test_binder_signoff_persists():
     db = SessionLocal()
     try:
-        today = date.today()
-        year, month = today.year, today.month
-        # Use a non-cash WP — Cash C.1 prepare/review is gated by bank recon readiness
+        can = db.scalar(select(DimEntity).where(DimEntity.code == "CAN"))
+        assert can
+        year, month = 2098, 6
         doc = upsert_binder_document(
             db,
             year=year,
             month=month,
-            key="ar",
+            key="pnl_analysis",
             checked=[0, 1],
             preparer="AB",
             notes="Tie-out complete",
             status="prepared",
+            entity_id=can.id,
         )
         db.commit()
         assert doc["status"] == "prepared"
@@ -62,15 +66,16 @@ def test_binder_signoff_persists():
             db,
             year=year,
             month=month,
-            key="ar",
+            key="pnl_analysis",
             reviewer="CD",
             status="reviewed",
+            entity_id=can.id,
         )
         db.commit()
         assert reviewed["status"] == "reviewed"
         assert reviewed["reviewer"] == "CD"
 
-        again = get_binder_document(db, year, month, "ar")
+        again = get_binder_document(db, year, month, "pnl_analysis", entity_id=can.id)
         assert again["notes"] == "Tie-out complete"
         assert again["status"] == "reviewed"
     finally:
@@ -97,11 +102,13 @@ def test_api_binder_endpoints():
     assert detail.status_code == 200
     assert "procedures" in detail.json()
 
+    entities = {e["code"]: e for e in client.get("/api/entities").json()}
+    can_id = entities["CAN"]["id"]
     upd = client.put(
-        f"/api/working-papers/binder/ar?year={today.year}&month={today.month}",
+        f"/api/working-papers/binder/pnl_analysis?year=2098&month=6&entity_id={can_id}",
         json={"checked": [0], "preparer": "XY", "status": "prepared"},
     )
-    assert upd.status_code == 200
+    assert upd.status_code == 200, upd.text
     assert upd.json()["preparer"] == "XY"
 
     dash = client.get("/api/dashboard?reporting_currency=CAD")

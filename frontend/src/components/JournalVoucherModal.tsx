@@ -35,6 +35,9 @@ export function JournalVoucherModal({
   const [description, setDescription] = useState(defaultDescription || 'Adjusting journal')
   const [lines, setLines] = useState<Line[]>(blankLines)
   const [error, setError] = useState<string | null>(null)
+  const [postClose, setPostClose] = useState(false)
+  const [reverseNext, setReverseNext] = useState(false)
+  const [monthLocked, setMonthLocked] = useState(false)
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
@@ -44,7 +47,19 @@ export function JournalVoucherModal({
     setLines(blankLines())
     setError(null)
     setSaving(false)
-  }, [open, periodEnd, defaultDescription])
+    setPostClose(false)
+    setReverseNext(false)
+    setMonthLocked(false)
+    if (entityId) {
+      api
+        .entityPeriodLock(Number(entityId), year, month)
+        .then((lock) => {
+          setMonthLocked(Boolean(lock.is_locked))
+          if (lock.is_locked) setPostClose(true)
+        })
+        .catch(() => undefined)
+    }
+  }, [open, periodEnd, defaultDescription, entityId, year, month])
 
   if (!open) return null
 
@@ -67,6 +82,8 @@ export function JournalVoucherModal({
         working_paper_key: workingPaperKey,
         source_transaction_id: sourceTransactionId,
         currency: entityCurrency,
+        post_close: postClose,
+        reverse_next_month: reverseNext,
         lines: lines
           .filter((l) => l.account_id && (l.debit || l.credit))
           .map((l) => ({
@@ -88,9 +105,12 @@ export function JournalVoucherModal({
   return (
     <div className="modal-backdrop" onClick={onClose} role="presentation">
       <div className="modal wide" onClick={(e) => e.stopPropagation()} role="dialog" aria-labelledby="journal-title">
-        <h3 id="journal-title">Adjusting journal</h3>
+        <h3 id="journal-title">{postClose || monthLocked ? 'Post-close adjusting journal' : 'Adjusting journal'}</h3>
         <p className="hint">
           GL-only voucher · does not hit a bank recon · posted as {user?.initials ?? 'you'}. Debits must equal credits.
+          {monthLocked
+            ? ' This month is locked — post as PCA (post-close adj); do not reopen the monthly rec.'
+            : ' Tuned to the monthly rec. Check PCA only after the month is locked.'}
         </p>
         {error && <div className="error">{error}</div>}
         <div className="form-row">
@@ -178,6 +198,21 @@ export function JournalVoucherModal({
           </tfoot>
         </table>
         <p className={`hint ${balanced ? '' : 'warn-text'}`}>{balanced ? 'Balanced' : 'Out of balance'}</p>
+        <div className="form-row" style={{ marginTop: '0.5rem' }}>
+          <label className="hint" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <input
+              type="checkbox"
+              checked={postClose}
+              disabled={monthLocked}
+              onChange={(e) => setPostClose(e.target.checked)}
+            />
+            Post-close adj (PCA){monthLocked ? ' — required, month is locked' : ''}
+          </label>
+          <label className="hint" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <input type="checkbox" checked={reverseNext} onChange={(e) => setReverseNext(e.target.checked)} />
+            Reverse next month
+          </label>
+        </div>
         <div className="toolbar" style={{ justifyContent: 'flex-end', marginTop: '0.75rem' }}>
           <button className="btn ghost" type="button" onClick={onClose}>
             Cancel

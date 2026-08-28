@@ -67,7 +67,7 @@ export function Layout() {
           ))}
         </nav>
         <div className="nav-meta">
-          Flow: <strong>Home</strong> queue → <strong>Work</strong> (live feed) →{' '}
+          Flow: <strong>Home</strong> monthly rec → <strong>Work</strong> →{' '}
           <strong>Binder</strong> sign-off → <strong>Statements</strong>.
         </div>
         {user && (

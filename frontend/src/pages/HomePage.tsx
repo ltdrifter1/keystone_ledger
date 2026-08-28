@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { ArrowRight, CheckCircle2, ClipboardList, FileBarChart2, Sparkles } from 'lucide-react'
+import { ArrowRight, CheckCircle2, ClipboardList, FileBarChart2, Lock, Sparkles } from 'lucide-react'
 import { api, type EngagementHome } from '../api'
 import { useEngagement } from '../period/PeriodContext'
 
@@ -10,6 +10,7 @@ export function HomePage() {
   const [home, setHome] = useState<EngagementHome | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
+  const [locking, setLocking] = useState(false)
 
   useEffect(() => {
     const y = searchParams.get('year')
@@ -38,6 +39,20 @@ export function HomePage() {
     void load()
   }, [load])
 
+  const lockMonth = async () => {
+    if (!entityId) return
+    setLocking(true)
+    setError(null)
+    try {
+      await api.lockEntityMonth(Number(entityId), year, month)
+      await load()
+    } catch (e) {
+      setError((e as Error).message)
+    } finally {
+      setLocking(false)
+    }
+  }
+
   if (!entityId) return <p className="hint">Loading engagement context…</p>
   if (error) return <div className="error">{error}</div>
   if (loading || !home) return <p className="hint">Loading engagement…</p>
@@ -46,6 +61,23 @@ export function HomePage() {
   const next = home.queue[0]
   const done = next?.status === 'ok'
   const openCount = home.queue.filter((q) => q.status !== 'ok').length
+  const journalLed = Boolean(home.journal_led || p.journal_led)
+  const monthLocked = Boolean(home.month_lock?.is_locked || p.month_locked)
+
+  const actionFor = (item: (typeof home.queue)[0]) => {
+    if (item.key === 'lock-month') {
+      return (
+        <button className="btn primary" type="button" disabled={locking || monthLocked} onClick={() => void lockMonth()}>
+          <Lock size={14} /> {locking ? 'Locking…' : monthLocked ? 'Month locked' : 'Lock month'}
+        </button>
+      )
+    }
+    return (
+      <Link className="btn ghost" to={item.href}>
+        Open <ArrowRight size={14} />
+      </Link>
+    )
+  }
 
   return (
     <div className="home-engagement">
@@ -55,8 +87,8 @@ export function HomePage() {
             {entityName ?? entityCode ?? 'Entity'} · {label}
           </h1>
           <p>
-            {entityName ?? 'WBC'} close — Work the queue top-down. Live feeds first, then binder
-            sign-off, then statements. WBC CAN and WBC USA stay separate.
+            Monthly rec for {entityName ?? entityCode ?? 'this company'} — Work the queue top-down. This version is
+            month-end close, not a daily inbox. WBC CAN and WBC USA stay separate.
           </p>
         </div>
         <div className="toolbar">
@@ -69,32 +101,62 @@ export function HomePage() {
           <Link className="btn" to={home.statements_href}>
             <FileBarChart2 size={14} /> Statements
           </Link>
+          <button className="btn primary" type="button" disabled={locking || monthLocked} onClick={() => void lockMonth()}>
+            <Lock size={14} /> {monthLocked ? 'Month locked' : 'Lock month'}
+          </button>
         </div>
       </div>
 
-      <div className="home-status-bar" aria-label="Engagement progress">
+      <div className="home-status-bar" aria-label="Monthly rec progress">
+        {journalLed ? (
+          <>
+            <span>
+              Journals <strong>{p.journals ?? 0}</strong>
+            </span>
+            <span className="home-status-sep" />
+            <span>
+              Unmatched IC <strong>{p.unmatched_ic ?? 0}</strong>
+            </span>
+            <span className="home-status-sep" />
+            <span>
+              Month <strong>{monthLocked ? 'locked' : 'open'}</strong>
+            </span>
+          </>
+        ) : (
+          <>
+            <span>
+              Banks <strong>
+                {p.banks_locked}/{p.banks_total}
+              </strong>{' '}
+              locked
+            </span>
+            <span className="home-status-sep" />
+            <span>
+              Blocking <strong>{p.blocking_total}</strong>
+            </span>
+            <span className="home-status-sep" />
+            <span>
+              Uncategorized <strong>{p.uncategorized}</strong>
+            </span>
+            <span className="home-status-sep" />
+            <span>
+              Unmatched IC <strong>{p.unmatched_ic ?? 0}</strong>
+            </span>
+            <span className="home-status-sep" />
+            <span>
+              Month <strong>{monthLocked ? 'locked' : 'open'}</strong>
+            </span>
+          </>
+        )}
+        <span className="home-status-sep" />
         <span>
-          Banks <strong>{p.banks_locked}/{p.banks_total}</strong> locked
+          Binder <strong>
+            {p.binder_reviewed}/{p.binder_total}
+          </strong>
         </span>
         <span className="home-status-sep" />
         <span>
-          Blocking <strong>{p.blocking_total}</strong>
-        </span>
-        <span className="home-status-sep" />
-        <span>
-          Uncategorized <strong>{p.uncategorized}</strong>
-        </span>
-        <span className="home-status-sep" />
-        <span>
-          Feeds <strong>{p.feeds_pending ?? 0}</strong> pending
-        </span>
-        <span className="home-status-sep" />
-        <span>
-          Binder <strong>{p.binder_reviewed}/{p.binder_total}</strong>
-        </span>
-        <span className="home-status-sep" />
-        <span>
-          Cash WP <strong>{p.cash_ready ? 'ready' : 'open'}</strong>
+          Cash WP <strong>{p.cash_ready ? (journalLed ? 'N/A' : 'ready') : 'open'}</strong>
         </span>
       </div>
 
@@ -108,24 +170,30 @@ export function HomePage() {
             <h2>{next.title}</h2>
             <p className="hint">{next.detail}</p>
           </div>
-          <Link className="btn primary" to={next.href}>
-            {done ? (
-              <>
-                <CheckCircle2 size={14} /> Review statements
-              </>
-            ) : (
-              <>
-                Continue <ArrowRight size={14} />
-              </>
-            )}
-          </Link>
+          {next.key === 'lock-month' ? (
+            <button className="btn primary" type="button" disabled={locking || monthLocked} onClick={() => void lockMonth()}>
+              <Lock size={14} /> {locking ? 'Locking…' : 'Lock month'}
+            </button>
+          ) : (
+            <Link className="btn primary" to={next.href}>
+              {done ? (
+                <>
+                  <CheckCircle2 size={14} /> Review statements
+                </>
+              ) : (
+                <>
+                  Continue <ArrowRight size={14} />
+                </>
+              )}
+            </Link>
+          )}
         </section>
       )}
 
       <section className="panel">
         <div className="panel-header">
-          <h2>Engagement queue</h2>
-          <span className="hint">Ordered: Work → Binder → Statements</span>
+          <h2>Monthly rec queue</h2>
+          <span className="hint">Ordered: Work → Binder → Lock month → Statements</span>
         </div>
         <ol className="home-queue">
           {home.queue.map((item) => (
@@ -141,9 +209,7 @@ export function HomePage() {
                 <strong>{item.title}</strong>
                 <span className="hint">{item.detail}</span>
               </div>
-              <Link className="btn ghost" to={item.href}>
-                Open <ArrowRight size={14} />
-              </Link>
+              {actionFor(item)}
             </li>
           ))}
         </ol>

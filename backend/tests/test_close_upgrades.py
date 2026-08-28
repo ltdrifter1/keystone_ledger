@@ -39,14 +39,18 @@ def test_session_defaults_and_switch():
 
 
 def test_sod_rejects_same_preparer_reviewer():
+    entities = {e["code"]: e for e in client.get("/api/entities").json()}
+    can_id = entities["CAN"]["id"]
+    # Empty future month so the paper is tied (zero GL) and SoD is the only gate
+    qs = "year=2098&month=3&entity_id=" + str(can_id)
     prep = client.put(
-        f"/api/working-papers/binder/inventory?year=2026&month=7",
+        f"/api/working-papers/binder/pnl_analysis?{qs}",
         json={"status": "prepared", "preparer": "AC"},
         headers={"X-Keystone-Actor": "alex"},
     )
     assert prep.status_code == 200, prep.text
     same = client.put(
-        f"/api/working-papers/binder/inventory?year=2026&month=7",
+        f"/api/working-papers/binder/pnl_analysis?{qs}",
         json={"status": "reviewed", "reviewer": "AC"},
         headers={"X-Keystone-Actor": "alex"},
     )
@@ -54,7 +58,7 @@ def test_sod_rejects_same_preparer_reviewer():
     assert "different" in same.json()["detail"].lower()
 
     ok = client.put(
-        f"/api/working-papers/binder/inventory?year=2026&month=7",
+        f"/api/working-papers/binder/pnl_analysis?{qs}",
         json={"status": "reviewed", "reviewer": "RP"},
         headers={"X-Keystone-Actor": "riley"},
     )

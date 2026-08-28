@@ -16,6 +16,10 @@ class EngagementProgress(BaseModel):
     cash_ready: bool = False
     feeds_connected: int = 0
     feeds_pending: int = 0
+    unmatched_ic: int = 0
+    journals: int = 0
+    month_locked: bool = False
+    journal_led: bool = False
 
 
 class EngagementQueueItem(BaseModel):
@@ -30,6 +34,17 @@ class EngagementQueueItem(BaseModel):
     status: str = "open"
 
 
+class MonthLockOut(BaseModel):
+    entity_id: int
+    period_year: int
+    period_month: int
+    is_locked: bool
+    locked_at: Optional[str] = None
+    locked_by: Optional[str] = None
+    notes: Optional[str] = None
+    journal_led: bool = False
+
+
 class EngagementHomeOut(BaseModel):
     period_year: int
     period_month: int
@@ -37,6 +52,8 @@ class EngagementHomeOut(BaseModel):
     entity_id: Optional[int] = None
     entity_code: Optional[str] = None
     entity_name: Optional[str] = None
+    journal_led: bool = False
+    month_lock: Optional[MonthLockOut] = None
     progress: EngagementProgress
     queue: list[EngagementQueueItem] = Field(default_factory=list)
     work_href: str

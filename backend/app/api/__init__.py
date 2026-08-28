@@ -9,6 +9,7 @@ from app.api import (
     feeds,
     imports,
     journals,
+    period_locks,
     reconciliations,
     reports,
     rules,
@@ -27,6 +28,7 @@ api_router.include_router(close_pack.router, tags=["close-pack"])
 api_router.include_router(feeds.router, tags=["bank-feeds"])
 api_router.include_router(transactions.router, tags=["transactions"])
 api_router.include_router(journals.router, tags=["journals"])
+api_router.include_router(period_locks.router, tags=["period-locks"])
 api_router.include_router(attachments.router, tags=["attachments"])
 api_router.include_router(imports.router, tags=["imports"])
 api_router.include_router(reconciliations.router, tags=["reconciliations"])
