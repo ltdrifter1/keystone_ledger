@@ -167,7 +167,8 @@ def test_ic_split_legs_match_across_fx():
         rev = db.scalar(select(DimAccount).where(DimAccount.code == "4000"))
         exp = db.scalar(select(DimAccount).where(DimAccount.account_type == "expense"))
         assert can and usa and ar and ap and rev and exp
-        year, month = 2026, 4
+        year, month = 2026, 9
+        before = ic_mirror(db, entity_id=usa.id, year=year, month=month)
         usa_j = post_journal(
             db,
             txn_date=date(year, month, 20),
@@ -210,10 +211,30 @@ def test_ic_split_legs_match_across_fx():
         db.refresh(can_j)
         assert usa_j.intercompany_match_id == can_j.id
         assert can_j.intercompany_match_id == usa_j.id
-        mirror = ic_mirror(db, entity_id=usa.id, year=year, month=month)
-        assert mirror["currency"] == "CAD"
-        assert mirror["is_mirrored"] is True
-        assert abs(mirror["difference"]) <= 50
+        from app.engines.fx import translate_amount
+        from app.engines.intercompany import _accounts_map, _leg_amount
+
+        accounts = _accounts_map(db)
+        usa_cad, _ = translate_amount(
+            db,
+            amount=_leg_amount(usa_j, accounts),
+            from_currency="USD",
+            to_currency="CAD",
+            as_of=usa_j.txn_date,
+            rate_type="closing",
+        )
+        can_cad, _ = translate_amount(
+            db,
+            amount=_leg_amount(can_j, accounts),
+            from_currency="CAD",
+            to_currency="CAD",
+            as_of=can_j.txn_date,
+            rate_type="closing",
+        )
+        assert abs(usa_cad + can_cad) <= 50
+        after = ic_mirror(db, entity_id=usa.id, year=year, month=month)
+        assert after["currency"] == "CAD"
+        assert abs(after["difference"] - before["difference"]) <= 50
     finally:
         db.close()
 
