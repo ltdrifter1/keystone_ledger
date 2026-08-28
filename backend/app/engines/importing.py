@@ -12,6 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.engines.audit import write_audit
+from app.engines import fiscal as _fiscal
 from app.engines.fingerprint import transaction_fingerprint
 from app.engines.fx import persistable_fx, translate_amount
 from app.engines.period_locks import PeriodLockedError, assert_bank_period_open
@@ -88,15 +89,15 @@ def ensure_date_dimension(db: Session, d: date) -> int:
             id=key,
             full_date=d,
             year=d.year,
-            quarter=(d.month - 1) // 3 + 1,
+            quarter=_fiscal.fiscal_quarter_of(d),
             month=d.month,
             month_name=d.strftime("%b"),
             day=d.day,
-            fiscal_year=d.year,
-            fiscal_period=d.month,
+            fiscal_year=_fiscal.fiscal_year_of(d),
+            fiscal_period=_fiscal.fiscal_period_of(d),
             is_month_end=False,
-            is_quarter_end=d.month in (3, 6, 9, 12) and d.day >= 28,
-            is_year_end=d.month == 12 and d.day == 31,
+            is_quarter_end=_fiscal.is_fiscal_quarter_end(d),
+            is_year_end=_fiscal.is_fiscal_year_end(d),
         )
     )
     db.flush()

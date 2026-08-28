@@ -10,6 +10,7 @@ from app.engines.statement_pack import (
     build_official_report,
     build_statement_diagnostics,
     build_trial_balance,
+    scoped_statement_filters,
 )
 from app.schemas.reports import (
     AnalyticsPack,
@@ -36,10 +37,9 @@ def _official_or_400(db: Session, filters: ReportFilter) -> ReportOut:
 
 def _scoped_filters(db: Session, filters: ReportFilter) -> ReportFilter:
     try:
-        entity_id = assert_statement_scope(db, filters)
+        return scoped_statement_filters(db, filters)
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
-    return filters.model_copy(update={"entity_ids": [entity_id], "consolidate": False})
 
 
 @router.post("/run", response_model=ReportOut)

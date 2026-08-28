@@ -35,7 +35,14 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return res.json()
 }
 
-export type Entity = { id: number; code: string; name: string; country: string; functional_currency: string }
+export type Entity = {
+  id: number
+  code: string
+  name: string
+  country: string
+  functional_currency: string
+  fiscal_year_end_month?: number
+}
 export type Account = { id: number; code: string; name: string; account_type: string; statement: string }
 export type BankAccount = {
   id: number
@@ -394,6 +401,10 @@ export type TrialBalanceRow = {
   line_code?: string | null
   line_label?: string | null
   mapped: boolean
+  opening_debit?: string
+  opening_credit?: string
+  period_debit?: string
+  period_credit?: string
   debit: string
   credit: string
   amount: string
@@ -416,6 +427,8 @@ export type TrialBalance = {
   uncategorized_count: number
   uncategorized_amount: string
   is_complete: boolean
+  is_balanced?: boolean
+  balance_difference?: string | null
   notes: ReportingNote[]
   generated_at: string
 }

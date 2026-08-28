@@ -7,12 +7,17 @@ from decimal import Decimal
 from typing import Iterable, Optional
 
 from sqlalchemy import func, select
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session
 
 from app.engines.fx import translate_amount
 from app.config import get_settings
-from app.engines.entity_close import is_journal_led_entity
+from app.engines.fiscal import (
+    DEFAULT_FYE_MONTH,
+    fiscal_quarter_bounds,
+    fiscal_year_start_for,
+)
 from app.engines.intercompany import account_is_ic_leg
+from app.engines.ledger import aggregate_ledger, iter_gl_lines
 from app.models import BankAccount, DimAccount, DimEntity, DimReportLayout, DimScenario, Transaction
 from app.schemas.reports import (
     AnalyticsKpi,
@@ -23,7 +28,7 @@ from app.schemas.reports import (
     ReportOut,
 )
 
-FYE_MONTH = 7  # Fiscal year-end 31 July
+FYE_MONTH = DEFAULT_FYE_MONTH  # Fiscal year-end 31 July
 BALANCE_TOLERANCE = Decimal("0.02")
 NIL_TOLERANCE = Decimal("0.005")
 CURRENT_EARNINGS_CODE = "BS_CURRENT_EARNINGS"
@@ -75,11 +80,9 @@ def _pretty_date(d: date) -> str:
     return f"{d.day} {d.strftime('%B %Y')}"
 
 
-def fiscal_year_start(year: int, month: int) -> date:
-    """First day of the fiscal year that contains year-month (FYE 31 July)."""
-    if month <= FYE_MONTH:
-        return date(year - 1, FYE_MONTH + 1, 1)
-    return date(year, FYE_MONTH + 1, 1)
+def fiscal_year_start(year: int, month: int, fye_month: int = FYE_MONTH) -> date:
+    """First day of the fiscal year that contains year-month (default FYE 31 July)."""
+    return fiscal_year_start_for(year, month, fye_month)
 
 
 def period_label(filters: ReportFilter) -> str:
@@ -93,8 +96,8 @@ def period_label(filters: ReportFilter) -> str:
     if filters.period == "monthly":
         return f"Month ended {_pretty_date(_month_end(year, month))}"
     if filters.period == "quarterly":
-        q = filters.quarter or ((month - 1) // 3 + 1)
-        return f"Quarter ended {_pretty_date(_month_end(year, q * 3))}"
+        _start, qend = fiscal_quarter_bounds(year, month, FYE_MONTH, filters.quarter)
+        return f"Quarter ended {_pretty_date(qend)}"
     if filters.period == "ytd":
         return f"Fiscal YTD ended {_pretty_date(end)}"
     start = filters.date_from or fiscal_year_start(year, month)
@@ -112,13 +115,8 @@ def _as_of_date(filters: ReportFilter) -> date:
 
 
 def use_cashbook_presentation(db: Session, filters: ReportFilter) -> bool:
-    """Cashbook BS only when every selected entity is synoptic-led (not USA journals)."""
-    if filters.report_type != "balance_sheet":
-        return False
-    entity_ids = filters.entity_ids or []
-    if not entity_ids:
-        return False
-    return all(not is_journal_led_entity(db, eid) for eid in entity_ids)
+    """Phase A: one ledger. Cashbook presentation is retired; kept as a no-op for callers."""
+    return False
 
 
 def _entity_banks(db: Session, entity_ids: list[int] | None) -> list[BankAccount]:
@@ -318,6 +316,25 @@ def cashbook_bs_overrides(
     )
 
 
+def _retained_earnings_override(
+    db: Session,
+    filters: ReportFilter,
+    accounts: dict[int, DimAccount],
+    totals: dict[int, Decimal],
+) -> Decimal:
+    """GL 3000 plus unclosed pre-FY NI (no year-end closing journal)."""
+    acct_3000 = next((a for a in accounts.values() if a.code == "3000"), None)
+    gl_re = Decimal("0")
+    if acct_3000:
+        gl_re = _signed_amount(acct_3000, totals.get(acct_3000.id, Decimal("0")), "balance_sheet")
+    as_of = _as_of_date(filters)
+    year = filters.year or as_of.year
+    month = filters.month or as_of.month
+    fy_start = fiscal_year_start(year, month)
+    pre_fy = _pnl_between(db, filters, accounts, date(2000, 1, 1), fy_start - timedelta(days=1))
+    return gl_re + pre_fy
+
+
 def _is_section_header(line: ReportLine) -> bool:
     return (not line.is_total) and (not line.drillable) and line.indent_level == 0
 
@@ -366,13 +383,19 @@ def prior_period_filters(filters: ReportFilter) -> ReportFilter:
     year = filters.year or (filters.as_of_date.year if filters.as_of_date else date.today().year)
     month = filters.month or (filters.as_of_date.month if filters.as_of_date else date.today().month)
     if filters.period == "quarterly" and filters.report_type != "balance_sheet":
-        q = filters.quarter or ((month - 1) // 3 + 1)
-        if q == 1:
-            return filters.model_copy(update={"year": year - 1, "quarter": 4, "month": 12})
-        end_month = q * 3
-        start_month = end_month - 2
-        prior_end = start_month - 1
-        return filters.model_copy(update={"quarter": q - 1, "month": prior_end})
+        _start, end = fiscal_quarter_bounds(year, month, FYE_MONTH, filters.quarter)
+        py, pm = _add_months(end.year, end.month, -3)
+        _ps, prior_end = fiscal_quarter_bounds(py, pm, FYE_MONTH)
+        return filters.model_copy(
+            update={
+                "year": prior_end.year,
+                "month": prior_end.month,
+                "quarter": None,
+                "as_of_date": prior_end,
+                "date_to": prior_end,
+                "date_from": _ps,
+            }
+        )
     py, pm = _add_months(year, month, -1)
     as_of = _month_end(py, pm)
     return filters.model_copy(
@@ -421,10 +444,9 @@ def _period_bounds(filters: ReportFilter) -> tuple[date, date]:
         return date(year, month, 1), _month_end(year, month)
 
     if filters.period == "quarterly":
-        q = filters.quarter or ((today.month - 1) // 3 + 1)
-        start_month = (q - 1) * 3 + 1
-        end_month = start_month + 2
-        return date(year, start_month, 1), _month_end(year, end_month)
+        month = filters.month or today.month
+        year = filters.year or today.year
+        return fiscal_quarter_bounds(year, month, FYE_MONTH, filters.quarter)
 
     if filters.period == "ytd":
         month = filters.month or (filters.as_of_date.month if filters.as_of_date else today.month)
@@ -449,42 +471,24 @@ def _iter_fact_lines(
     department_ids: Optional[list[int]],
 ) -> Iterable[tuple[Transaction, int, Optional[int], Decimal]]:
     """
-    Yield (source_txn, account_id, department_id, amount) fact grains.
-    Split transactions explode into multiple fact lines.
+    Yield (source_txn, account_id, department_id, bank-signed amount) GL facts.
+    Bank activity explodes into cash + the other side (9999 if uncategorized).
     """
-    q = (
-        select(Transaction)
-        .options(
-            joinedload(Transaction.splits),
-            joinedload(Transaction.bank_account),
-            joinedload(Transaction.entity),
-        )
-        .where(
-            Transaction.scenario_id == scenario_id,
-            Transaction.txn_date >= date_from,
-            Transaction.txn_date <= date_to,
-            Transaction.status.notin_(["void", "excluded"]),
-        )
-    )
-    if entity_ids:
-        q = q.where(Transaction.entity_id.in_(entity_ids))
-    if department_ids:
-        # Filter parent dept OR any split dept — applied below for splits
-        pass
-
-    txns = db.scalars(q).unique().all()
-    for txn in txns:
-        if txn.is_split and txn.splits:
-            for split in txn.splits:
-                if department_ids and split.department_id not in department_ids:
-                    continue
-                yield txn, split.account_id, split.department_id, Decimal(split.amount)
-        else:
-            if txn.account_id is None:
-                continue
-            if department_ids and txn.department_id not in department_ids:
-                continue
-            yield txn, txn.account_id, txn.department_id, Decimal(txn.amount)
+    accounts = {a.id: a for a in db.scalars(select(DimAccount)).all()}
+    include_openings = date_from <= date(2000, 1, 2)
+    for line in iter_gl_lines(
+        db,
+        date_from=date_from,
+        date_to=date_to,
+        scenario_id=scenario_id,
+        entity_ids=entity_ids,
+        department_ids=department_ids,
+        include_openings=include_openings,
+    ):
+        acct = accounts.get(line.account_id)
+        if not acct:
+            continue
+        yield line.txn, line.account_id, line.department_id, line.bank_signed(acct)
 
 
 def _fact_memo(txn: Transaction, account_id: int, amount: Decimal) -> str:
@@ -512,51 +516,48 @@ def aggregate_account_bundle(
     """Account totals in reporting currency, with IC legs split out of 1100/2000."""
     settings = get_settings()
     reporting_currency = filters.reporting_currency or settings.default_reporting_currency
-    accounts = {a.id: a for a in db.scalars(select(DimAccount)).all()}
 
     if balance_sheet:
         date_from = date(2000, 1, 1)
         date_to = filters.as_of_date or filters.date_to or date.today()
+        include_openings = True
+        rate_type = "closing"
     else:
         date_from, date_to = _period_bounds(filters)
+        include_openings = False
+        rate_type = "average"
 
-    totals: dict[int, Decimal] = defaultdict(lambda: Decimal("0"))
-    ic_totals: dict[int, Decimal] = defaultdict(lambda: Decimal("0"))
-    missing_pairs: list[str] = []
-    seen_missing: set[str] = set()
+    def _ic_pred(acct: DimAccount, line) -> bool:
+        if getattr(line, "is_opening", False):
+            return False
+        txn = line.txn
+        if txn is None or not hasattr(txn, "description"):
+            return False
+        return account_is_ic_leg(acct, txn, line.memo or "")
 
-    for txn, account_id, _dept, amount in _iter_fact_lines(
+    ledger = aggregate_ledger(
         db,
         date_from=date_from,
         date_to=date_to,
         scenario_id=filters.scenario_id,
         entity_ids=filters.entity_ids,
         department_ids=filters.department_ids,
-    ):
-        translated = translate_amount(
-            db,
-            amount=amount,
-            from_currency=txn.currency,
-            to_currency=reporting_currency,
-            as_of=txn.txn_date,
-            rate_type="average" if not balance_sheet else "closing",
-        )
-        if translated.missing:
-            pair = f"{txn.currency}→{reporting_currency}"
-            if pair not in seen_missing:
-                seen_missing.add(pair)
-                missing_pairs.append(pair)
-        totals[account_id] += translated.amount
-        acct = accounts.get(account_id)
-        extra = _fact_memo(txn, account_id, amount)
-        if account_is_ic_leg(acct, txn, extra):
-            ic_totals[account_id] += translated.amount
-
+        reporting_currency=reporting_currency,
+        rate_type=rate_type,
+        include_openings=include_openings,
+        ic_predicate=_ic_pred,
+    )
+    totals = {aid: slot.bank_signed for aid, slot in ledger.by_account.items()}
+    ic_totals = {
+        aid: slot.ic_bank_signed
+        for aid, slot in ledger.by_account.items()
+        if slot.ic_bank_signed
+    }
     return AccountBundle(
-        totals=dict(totals),
-        ic_totals=dict(ic_totals),
-        fx_missing=bool(missing_pairs),
-        fx_missing_pairs=missing_pairs,
+        totals=totals,
+        ic_totals=ic_totals,
+        fx_missing=ledger.fx_missing,
+        fx_missing_pairs=list(ledger.fx_missing_pairs),
     )
 
 
@@ -622,9 +623,18 @@ def _compute_layout_amount(
         elif layout.account_id:
             drill_ids = [layout.account_id]
         elif layout.line_code == CASH_XFER_CODE:
-            acct = accounts_by_code.get("1000")
+            acct = accounts_by_code.get("1090") or accounts_by_code.get("1000")
             if acct:
                 drill_ids = [acct.id]
+        elif layout.line_code == CASH_LINE_CODE:
+            drill_ids = [a.id for a in accounts.values() if a.is_cash and a.is_active]
+        return amount, drill_ids, type_filter
+
+    if layout.line_code == CASH_LINE_CODE:
+        for acct in accounts.values():
+            if acct.is_cash and acct.is_active:
+                amount += _present(acct, totals.get(acct.id, Decimal("0")), layout.line_code)
+                drill_ids.append(acct.id)
         return amount, drill_ids, type_filter
 
     if layout.line_code == TRADE_AR_CODE and layout.account_id:
@@ -895,49 +905,30 @@ def build_report(db: Session, filters: ReportFilter) -> ReportOut:
     prior_overrides: dict[str, Decimal] = {}
     py_overrides: dict[str, Decimal] = {}
     budget_overrides: dict[str, Decimal] = {}
-    cashbook = use_cashbook_presentation(db, filters) if balance_sheet else False
+    cashbook = False
     if balance_sheet:
         earnings_overrides[CURRENT_EARNINGS_CODE] = _pnl_net_income(db, filters, accounts)
-        earnings_overrides[CASH_XFER_CODE] = Decimal("0")
-        if cashbook:
-            cb, miss, pairs = cashbook_bs_overrides(db, filters, accounts, totals)
-            earnings_overrides.update(cb)
-            fx_missing = fx_missing or miss
-            fx_missing_pairs += [p for p in pairs if p not in fx_missing_pairs]
+        earnings_overrides[EQUITY_CODE] = _retained_earnings_override(db, filters, accounts, totals)
         if compare_totals is not None:
             compare_filters = filters.model_copy(update={"scenario_id": filters.compare_scenario_id})
             compare_overrides[CURRENT_EARNINGS_CODE] = _pnl_net_income(db, compare_filters, accounts)
-            compare_overrides[CASH_XFER_CODE] = Decimal("0")
-            if cashbook:
-                cb, miss, pairs = cashbook_bs_overrides(db, compare_filters, accounts, compare_totals)
-                compare_overrides.update(cb)
-                fx_missing = fx_missing or miss
-                fx_missing_pairs += [p for p in pairs if p not in fx_missing_pairs]
+            compare_overrides[EQUITY_CODE] = _retained_earnings_override(
+                db, compare_filters, accounts, compare_totals
+            )
         if prior_filters is not None and prior_totals is not None:
             prior_overrides[CURRENT_EARNINGS_CODE] = _pnl_net_income(db, prior_filters, accounts)
-            prior_overrides[CASH_XFER_CODE] = Decimal("0")
-            if cashbook:
-                cb, miss, pairs = cashbook_bs_overrides(db, prior_filters, accounts, prior_totals)
-                prior_overrides.update(cb)
-                fx_missing = fx_missing or miss
-                fx_missing_pairs += [p for p in pairs if p not in fx_missing_pairs]
+            prior_overrides[EQUITY_CODE] = _retained_earnings_override(
+                db, prior_filters, accounts, prior_totals
+            )
         if py_filters is not None and py_totals is not None:
             py_overrides[CURRENT_EARNINGS_CODE] = _pnl_net_income(db, py_filters, accounts)
-            py_overrides[CASH_XFER_CODE] = Decimal("0")
-            if cashbook:
-                cb, miss, pairs = cashbook_bs_overrides(db, py_filters, accounts, py_totals)
-                py_overrides.update(cb)
-                fx_missing = fx_missing or miss
-                fx_missing_pairs += [p for p in pairs if p not in fx_missing_pairs]
+            py_overrides[EQUITY_CODE] = _retained_earnings_override(db, py_filters, accounts, py_totals)
         if budget_id and budget_totals is not None:
             budget_filters = filters.model_copy(update={"scenario_id": budget_id})
             budget_overrides[CURRENT_EARNINGS_CODE] = _pnl_net_income(db, budget_filters, accounts)
-            budget_overrides[CASH_XFER_CODE] = Decimal("0")
-            if cashbook:
-                cb, miss, pairs = cashbook_bs_overrides(db, budget_filters, accounts, budget_totals)
-                budget_overrides.update(cb)
-                fx_missing = fx_missing or miss
-                fx_missing_pairs += [p for p in pairs if p not in fx_missing_pairs]
+            budget_overrides[EQUITY_CODE] = _retained_earnings_override(
+                db, budget_filters, accounts, budget_totals
+            )
 
     if not layouts:
         report = _synthesize_report(
@@ -1045,8 +1036,6 @@ def build_report(db: Session, filters: ReportFilter) -> ReportOut:
             wp_ref = tmpl.wp_ref
         drillable = bool(drill_ids)
         line_label = layout.line_label
-        if cashbook and layout.line_code == EQUITY_CODE:
-            line_label = "Opening equity"
 
         flag = _flag_flux(amount, prior_amount, mat_amt=mat_amt, mat_pct=mat_pct)
         lines.append(
