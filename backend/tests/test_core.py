@@ -35,7 +35,7 @@ def test_dashboard_and_income_statement():
 
     report = client.get("/api/reports/income-statement?period=ytd")
     assert report.status_code == 200
-    assert report.json()["title"] == "Income Statement"
+    assert report.json()["title"] == "Profit & Loss"
     assert len(report.json()["lines"]) > 0
 
 

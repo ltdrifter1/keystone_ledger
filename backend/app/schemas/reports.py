@@ -73,6 +73,12 @@ class ReportOut(BaseModel):
     budget_label: Optional[str] = None
     columns: list[str] = Field(default_factory=lambda: ["amount"])
     flux: list["FluxItem"] = Field(default_factory=list)
+    cover_title: Optional[str] = None
+    entity_name: Optional[str] = None
+    is_balanced: Optional[bool] = None
+    balance_difference: Optional[Decimal] = None
+    fx_missing: bool = False
+    fx_missing_pairs: list[str] = Field(default_factory=list)
 
 
 class FluxItem(BaseModel):

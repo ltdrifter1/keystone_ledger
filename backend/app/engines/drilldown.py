@@ -10,11 +10,18 @@ from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.engines.fx import translate_amount
+from app.engines.intercompany import account_is_ic_leg
 from app.engines.reporting import (
+    CURRENT_EARNINGS_CODE,
+    IC_LINE_CODE,
+    TRADE_AP_CODE,
+    TRADE_AR_CODE,
     _iter_fact_lines,
     _period_bounds,
     _signed_amount,
+    _ytd_filters,
     build_report,
+    period_label,
 )
 from app.engines.working_papers import find_template
 from app.models import DimAccount, DimEntity, DimReportLayout
@@ -28,19 +35,7 @@ from app.schemas.reports import (
 
 
 def _period_label(filters: ReportFilter) -> str:
-    if filters.report_type == "balance_sheet":
-        as_of = filters.as_of_date or filters.date_to
-        return f"As of {as_of.isoformat()}" if as_of else "As of today"
-
-    start, end = _period_bounds(filters)
-    if filters.period == "monthly":
-        return start.strftime("%b %Y")
-    if filters.period == "quarterly":
-        q = filters.quarter or ((start.month - 1) // 3 + 1)
-        return f"Q{q} {start.year}"
-    if filters.period == "ytd":
-        return f"YTD {start.year} · through {end.isoformat()}"
-    return f"{start.isoformat()} → {end.isoformat()}"
+    return period_label(filters)
 
 
 def _resolve_accounts(
@@ -76,7 +71,7 @@ def _resolve_accounts(
         if match.account_type_filter:
             ids = [a.id for a in accounts.values() if a.account_type == match.account_type_filter and a.is_active]
             return match.line_label, ids, match.account_type_filter, match.wp_ref
-        if match.line_code in ("NET_INCOME", "NI") or (
+        if match.line_code in ("NET_INCOME", "NI", CURRENT_EARNINGS_CODE) or (
             match.is_total and match.section == "totals"
         ):
             ids = [a.id for a in accounts.values() if a.account_type in ("revenue", "expense") and a.is_active]
@@ -120,12 +115,6 @@ def drill_report_line(db: Session, payload: DrillRequest) -> DrillOut:
     accounts = {a.id: a for a in db.scalars(select(DimAccount)).all()}
     entities = {e.id: e for e in db.scalars(select(DimEntity)).all()}
 
-    if balance_sheet:
-        date_from = date(2000, 1, 1)
-        date_to = filters.as_of_date or filters.date_to or date.today()
-    else:
-        date_from, date_to = _period_bounds(filters)
-
     report = build_report(db, filters)
     report_line = next((line for line in report.lines if line.line_code == payload.line_code), None)
     statement_amount = report_line.amount if report_line else Decimal("0")
@@ -133,14 +122,34 @@ def drill_report_line(db: Session, payload: DrillRequest) -> DrillOut:
         line_label = report_line.line_label
         wp_ref = wp_ref or report_line.wp_ref
 
-    detail: list[DrillLine] = []
-    detail_total = Decimal("0")
-    is_net_income_line = payload.line_code in ("NI", "NET_INCOME") or (
+    is_current_earnings = payload.line_code == CURRENT_EARNINGS_CODE
+    is_net_income_line = payload.line_code in ("NI", "NET_INCOME", CURRENT_EARNINGS_CODE) or (
         report_line is not None
         and report_line.is_total
         and report_line.section == "totals"
         and "NET" in report_line.line_label.upper()
     )
+
+    sign_report_type = "income_statement" if is_current_earnings else filters.report_type
+    if is_current_earnings:
+        date_from, date_to = _period_bounds(_ytd_filters(filters))
+        rate_type = "average"
+    elif balance_sheet:
+        date_from = date(2000, 1, 1)
+        date_to = filters.as_of_date or filters.date_to or date.today()
+        rate_type = "closing"
+    else:
+        date_from, date_to = _period_bounds(filters)
+        rate_type = "average"
+
+    ic_mode = None
+    if payload.line_code in (TRADE_AR_CODE, TRADE_AP_CODE):
+        ic_mode = "exclude"
+    elif payload.line_code == IC_LINE_CODE:
+        ic_mode = "only"
+
+    detail: list[DrillLine] = []
+    detail_total = Decimal("0")
 
     for txn, account_id, _dept, amount in _iter_fact_lines(
         db,
@@ -158,20 +167,40 @@ def drill_report_line(db: Session, payload: DrillRequest) -> DrillOut:
         if type_filter and acct.account_type != type_filter:
             continue
 
-        reporting_amt, _ = translate_amount(
+        extra = ""
+        if txn.is_split and txn.splits:
+            for split in txn.splits:
+                if split.account_id == account_id:
+                    extra = split.memo or ""
+                    break
+        else:
+            extra = txn.memo or ""
+        is_ic = account_is_ic_leg(acct, txn, extra)
+        if ic_mode == "exclude" and is_ic:
+            continue
+        if ic_mode == "only":
+            if acct.code == "2100" or acct.is_intercompany:
+                pass
+            elif not is_ic:
+                continue
+
+        translated = translate_amount(
             db,
             amount=amount,
             from_currency=txn.currency,
             to_currency=reporting_currency,
             as_of=txn.txn_date,
-            rate_type="average" if not balance_sheet else "closing",
+            rate_type=rate_type,
         )
+        reporting_amt = translated.amount
         # Net income WP uses economic contribution (bank-signed).
         # Other IS lines use statement presentation (expenses positive).
-        if is_net_income_line and filters.report_type == "income_statement":
+        if is_net_income_line and sign_report_type == "income_statement":
             signed = reporting_amt
+        elif ic_mode == "only" and acct.code == "1100":
+            signed = -_signed_amount(acct, reporting_amt, "balance_sheet")
         else:
-            signed = _signed_amount(acct, reporting_amt, filters.report_type)
+            signed = _signed_amount(acct, reporting_amt, sign_report_type)
         detail_total += signed
 
         split_memo = None

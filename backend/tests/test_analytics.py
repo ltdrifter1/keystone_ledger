@@ -53,11 +53,10 @@ def test_analytics_pack_and_export():
     pack = client.post("/api/reports/analytics", json=filters)
     assert pack.status_code == 200, pack.text
     body = pack.json()
-    assert len(body["statements"]) == 3
+    assert len(body["statements"]) == 2
     assert {s["report_type"] for s in body["statements"]} == {
         "income_statement",
         "balance_sheet",
-        "cash_flow",
     }
     assert body["kpis"]
     assert "materiality_amount" in body

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import date
 from decimal import Decimal
-from typing import Optional
+from typing import NamedTuple, Optional
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -10,14 +10,21 @@ from sqlalchemy.orm import Session
 from app.models import DimFx
 
 
-def get_rate(
+class FxTranslation(NamedTuple):
+    amount: Decimal
+    rate: Decimal
+    missing: bool = False
+
+
+def lookup_rate(
     db: Session,
     *,
     from_currency: str,
     to_currency: str,
     as_of: date,
     rate_type: str = "spot",
-) -> Decimal:
+) -> Optional[Decimal]:
+    """Return the FX rate, or None when no pair exists (do not assume 1)."""
     if from_currency == to_currency:
         return Decimal("1")
 
@@ -35,7 +42,6 @@ def get_rate(
     if rate:
         return Decimal(rate.rate)
 
-    # Try inverse
     inv = db.scalar(
         select(DimFx)
         .where(
@@ -50,7 +56,25 @@ def get_rate(
     if inv and Decimal(inv.rate) != 0:
         return Decimal("1") / Decimal(inv.rate)
 
-    return Decimal("1")  # fallback identity — visible in UI as missing FX
+    return None
+
+
+def get_rate(
+    db: Session,
+    *,
+    from_currency: str,
+    to_currency: str,
+    as_of: date,
+    rate_type: str = "spot",
+) -> Decimal:
+    rate = lookup_rate(
+        db,
+        from_currency=from_currency,
+        to_currency=to_currency,
+        as_of=as_of,
+        rate_type=rate_type,
+    )
+    return rate if rate is not None else Decimal("1")
 
 
 def translate_amount(
@@ -61,15 +85,20 @@ def translate_amount(
     to_currency: str,
     as_of: date,
     rate_type: str = "spot",
-) -> tuple[Decimal, Decimal]:
-    rate = get_rate(
+) -> FxTranslation:
+    if from_currency == to_currency:
+        return FxTranslation(amount, Decimal("1"), False)
+    rate = lookup_rate(
         db,
         from_currency=from_currency,
         to_currency=to_currency,
         as_of=as_of,
         rate_type=rate_type,
     )
-    return (amount * rate, rate)
+    if rate is None:
+        # Leave native; callers must surface fx_missing rather than silently using 1.
+        return FxTranslation(amount, Decimal("1"), True)
+    return FxTranslation(amount * rate, rate, False)
 
 
 def fx_exposure_by_currency(
@@ -80,7 +109,7 @@ def fx_exposure_by_currency(
 ) -> list[dict]:
     rows = []
     for currency, native in amounts_by_currency.items():
-        reporting, rate = translate_amount(
+        translated = translate_amount(
             db,
             amount=native,
             from_currency=currency,
@@ -91,9 +120,10 @@ def fx_exposure_by_currency(
             {
                 "currency": currency,
                 "native_balance": float(native),
-                "reporting_balance": float(reporting),
-                "rate": float(rate),
+                "reporting_balance": float(translated.amount),
+                "rate": float(translated.rate),
                 "reporting_currency": reporting_currency,
+                "rate_missing": translated.missing,
             }
         )
     return rows
