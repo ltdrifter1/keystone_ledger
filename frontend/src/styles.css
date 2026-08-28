@@ -199,6 +199,15 @@ a {
   background: linear-gradient(180deg, #45e4a0, #2bb87a);
 }
 
+.btn.primary:disabled,
+.btn.primary:disabled:hover {
+  background: var(--bg-3);
+  color: var(--text-faint);
+  border: 1px solid var(--line);
+  filter: none;
+  opacity: 1;
+}
+
 .btn.ghost {
   background: transparent;
 }

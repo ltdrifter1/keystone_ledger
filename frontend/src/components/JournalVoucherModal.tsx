@@ -1,10 +1,15 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { api, type Account } from '../api'
 import { useEngagement } from '../period/PeriodContext'
 import { useSession } from '../session/SessionContext'
 import { money } from '../lib/format'
 
 type Line = { account_id: string; debit: string; credit: string; memo: string }
+
+const blankLines = (): Line[] => [
+  { account_id: '', debit: '', credit: '', memo: '' },
+  { account_id: '', debit: '', credit: '', memo: '' },
+]
 
 export function JournalVoucherModal({
   accounts,
@@ -28,12 +33,18 @@ export function JournalVoucherModal({
   const periodEnd = useMemo(() => new Date(year, month, 0).toISOString().slice(0, 10), [year, month])
   const [txnDate, setTxnDate] = useState(periodEnd)
   const [description, setDescription] = useState(defaultDescription || 'Adjusting journal')
-  const [lines, setLines] = useState<Line[]>([
-    { account_id: '', debit: '', credit: '', memo: '' },
-    { account_id: '', debit: '', credit: '', memo: '' },
-  ])
+  const [lines, setLines] = useState<Line[]>(blankLines)
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    if (!open) return
+    setTxnDate(periodEnd)
+    setDescription(defaultDescription || 'Adjusting journal')
+    setLines(blankLines())
+    setError(null)
+    setSaving(false)
+  }, [open, periodEnd, defaultDescription])
 
   if (!open) return null
 

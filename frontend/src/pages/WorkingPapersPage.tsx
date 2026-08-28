@@ -519,51 +519,54 @@ export function WorkingPapersPage() {
                       sidebar to review.
                     </p>
                     <div className="toolbar" style={{ marginBottom: '0.65rem' }}>
-                      <button
-                        className="btn"
-                        disabled={
-                          doc.status === 'prepared' ||
-                          doc.status === 'reviewed' ||
-                          doc.can_prepare === false
-                        }
-                        title={
-                          doc.can_prepare === false
-                            ? (doc.gate_messages || []).join('; ') || 'Not ready'
-                            : undefined
-                        }
-                        onClick={() =>
-                          void persist({
-                            status: 'prepared',
-                            preparer: user?.initials,
-                          })
-                        }
-                      >
-                        Mark prepared
-                      </button>
-                      <button
-                        className="btn primary"
-                        disabled={
-                          doc.status === 'reviewed' ||
-                          doc.can_review === false ||
-                          !doc.preparer ||
-                          (user?.initials || '').toUpperCase() === (doc.preparer || '').toUpperCase()
-                        }
-                        title={
-                          (user?.initials || '').toUpperCase() === (doc.preparer || '').toUpperCase()
-                            ? 'Reviewer must be a different person — switch user'
-                            : doc.can_review === false
+                      {doc.status === 'prepared' || doc.status === 'reviewed' ? (
+                        <span className="badge ok">Prepared · {doc.preparer}</span>
+                      ) : (
+                        <button
+                          className="btn"
+                          disabled={doc.can_prepare === false}
+                          title={
+                            doc.can_prepare === false
                               ? (doc.gate_messages || []).join('; ') || 'Not ready'
                               : undefined
-                        }
-                        onClick={() =>
-                          void persist({
-                            status: 'reviewed',
-                            reviewer: user?.initials,
-                          })
-                        }
-                      >
-                        Mark reviewed
-                      </button>
+                          }
+                          onClick={() =>
+                            void persist({
+                              status: 'prepared',
+                              preparer: user?.initials,
+                            })
+                          }
+                        >
+                          Mark prepared
+                        </button>
+                      )}
+                      {doc.status === 'reviewed' ? (
+                        <span className="badge ok">Reviewed · {doc.reviewer}</span>
+                      ) : (
+                        <button
+                          className="btn primary"
+                          disabled={
+                            doc.can_review === false ||
+                            !doc.preparer ||
+                            (user?.initials || '').toUpperCase() === (doc.preparer || '').toUpperCase()
+                          }
+                          title={
+                            (user?.initials || '').toUpperCase() === (doc.preparer || '').toUpperCase()
+                              ? 'Reviewer must be a different person — switch user'
+                              : doc.can_review === false
+                                ? (doc.gate_messages || []).join('; ') || 'Not ready'
+                                : undefined
+                          }
+                          onClick={() =>
+                            void persist({
+                              status: 'reviewed',
+                              reviewer: user?.initials,
+                            })
+                          }
+                        >
+                          Mark reviewed
+                        </button>
+                      )}
                     </div>
                     {(doc.gate_messages?.length ?? 0) > 0 && doc.key !== 'cash' && (
                       <p className="hint" style={{ marginBottom: '0.65rem' }}>
