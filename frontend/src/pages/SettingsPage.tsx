@@ -284,11 +284,22 @@ export function SettingsPage() {
                 <select
                   className="select"
                   value={draft.rule_kind}
-                  onChange={(e) => setDraft({ ...draft, rule_kind: e.target.value })}
+                  onChange={(e) => {
+                    const kind = e.target.value
+                    const next = { ...draft, rule_kind: kind }
+                    if (kind === 'bank_transfer') {
+                      const cash = accounts.find((a) => a.code === '1000')
+                      if (cash) next.assign_account_id = String(cash.id)
+                    } else if (kind === 'intercompany') {
+                      const ic = accounts.find((a) => a.code === '2100')
+                      if (ic) next.assign_account_id = String(ic.id)
+                    }
+                    setDraft(next)
+                  }}
                 >
                   <option value="gl">GL</option>
                   <option value="bank_transfer">Transfer (same entity)</option>
-                  <option value="intercompany">Intercompany</option>
+                  <option value="intercompany">Intercompany (CAN↔USA)</option>
                 </select>
               </label>
               <label>
@@ -450,6 +461,7 @@ export function SettingsPage() {
                         onClick={() => {
                           setEditingId(r.id)
                           setDraft(ruleToDraft(r))
+                          setPreview(null)
                         }}
                       >
                         Edit

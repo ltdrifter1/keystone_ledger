@@ -336,7 +336,7 @@ export function BankInboxPanel({ year, month, entityId, entityCode, onChanged, o
                           placeholder="GL account…"
                           onSelect={(accountId) => void categorize(txn, accountId)}
                         />
-                        {otherBanks.length > 1 && (
+                        {otherBanks.length > 0 && (
                           <select
                             className="select"
                             disabled={locked}
@@ -359,7 +359,7 @@ export function BankInboxPanel({ year, month, entityId, entityCode, onChanged, o
                         >
                           <ArrowLeftRight size={14} /> Transfer
                         </button>
-                        {otherEntities.length > 1 && (
+                        {otherEntities.length > 0 && (
                           <select
                             className="select"
                             disabled={locked}

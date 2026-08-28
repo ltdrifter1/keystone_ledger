@@ -282,6 +282,12 @@ def test_import_does_not_store_silent_one_to_one():
     assert listed
     assert listed[0]["fx_missing"] is True
     assert listed[0]["fx_rate"] is None
+    status = client.get(f"/api/fx-rates/status?entity_id={listed[0]['entity_id']}&year=2026&month=7")
+    assert status.status_code == 200
+    body = status.json()
+    assert any(p.startswith("GBP→CAD") for p in body["missing_pairs"])
+    assert body["can_print"] is False
+    assert body["inbox_missing_count"] >= 1
     db = SessionLocal()
     try:
         leftover = db.scalar(select(Transaction).where(Transaction.description == "GBP WIRE MISSINGFXPAIR"))
