@@ -20,6 +20,7 @@ export function ReportsPage() {
     entityId: engagementEntityId,
     setEntityId: setEngagementEntityId,
     entityCode,
+    entityCurrency,
   } = useEngagement()
   const [searchParams] = useSearchParams()
   const initialType = searchParams.get('type') || 'income_statement'
@@ -84,7 +85,7 @@ export function ReportsPage() {
       year,
       month,
       scenario_id: Number(scenarioId),
-      reporting_currency: 'CAD',
+      reporting_currency: entityCurrency || 'CAD',
       consolidate: !entityId,
       entity_ids: entityId ? [Number(entityId)] : null,
       compare_scenario_id: compareScenarioId ? Number(compareScenarioId) : null,
@@ -94,7 +95,7 @@ export function ReportsPage() {
       compare_prior_year: compareYear,
       compare_budget: compareBudget,
     }),
-    [reportType, reportPeriod, year, month, scenarioId, entityId, compareScenarioId, asOf, comparePrior, compareYear, compareBudget],
+    [reportType, reportPeriod, year, month, scenarioId, entityId, compareScenarioId, asOf, comparePrior, compareYear, compareBudget, entityCurrency],
   )
 
   const run = useCallback(async () => {

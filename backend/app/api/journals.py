@@ -45,7 +45,7 @@ def create_journal(
             memo=payload.memo,
             working_paper_key=payload.working_paper_key,
             source_transaction_id=payload.source_transaction_id,
-            currency=payload.currency,
+            currency=payload.currency or "",
             scenario_id=payload.scenario_id,
         )
         db.commit()

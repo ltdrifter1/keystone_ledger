@@ -1,0 +1,17 @@
+WBC USA,,,,,,
+Adjusting Entries,,,,,,
+"July 31, 2026",,,,,,
+,,,,,,
+Entry No.,Description,FS Line,GL Code,,Dr,Cr
+,,,,,,
+STD-001,Interco AR,,,,"38,167.90",
+,Interco sales,,,,,"38,167.90"
+,,,,,,
+STD-002,Interco AP - service,,,,,"140,996.40"
+,Interco exp,,,,"140,996.40",
+,,,,,,
+STD-003,Interco AP-inventory,,,,,"38,916.36"
+,interco exp,,,,"38,916.36",
+,,,,,,
+CLASS1,Move DL from COGS to exp,,cogs,,,127535
+,Move DL from COGS to exp,,opex,,127535,

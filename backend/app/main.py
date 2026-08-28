@@ -11,6 +11,7 @@ from app.engines.identity import ensure_users
 from app.engines.working_papers import ensure_working_paper_foundation
 from app.services.ensure_budget import ensure_bank_budget_targets
 from app.services.ensure_pnl_budget import ensure_pnl_budget_targets
+from app.engines.adj_pack import ensure_wbc_company_pack
 from app.services.seed import seed_if_empty
 
 settings = get_settings()
@@ -23,7 +24,14 @@ async def lifespan(_: FastAPI):
     try:
         seeded = seed_if_empty(db)
         if seeded:
-            print("Seeded WBC data (CAN + USA entities, chart from synoptic map, CAN 1010 synoptic)")
+            print("Seeded WBC CAN + WBC USA (CAN 1010 synoptic, USA FY2026 adj pack)")
+        wbc = ensure_wbc_company_pack(db)
+        if wbc.get("usa_adj", {}).get("imported") or wbc.get("renamed_entities"):
+            print(
+                "WBC company pack ready "
+                f"(renamed {wbc['renamed_entities']} entities, "
+                f"USA adj +{wbc.get('usa_adj', {}).get('imported', 0)})"
+            )
         users = ensure_users(db)
         if users:
             print(f"Seeded {users} close-team user(s)")

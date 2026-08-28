@@ -28,7 +28,7 @@ export function JournalVoucherModal({
   sourceTransactionId?: number
   defaultDescription?: string
 }) {
-  const { year, month, entityId } = useEngagement()
+  const { year, month, entityId, entityCurrency } = useEngagement()
   const { user } = useSession()
   const periodEnd = useMemo(() => new Date(year, month, 0).toISOString().slice(0, 10), [year, month])
   const [txnDate, setTxnDate] = useState(periodEnd)
@@ -66,6 +66,7 @@ export function JournalVoucherModal({
         description,
         working_paper_key: workingPaperKey,
         source_transaction_id: sourceTransactionId,
+        currency: entityCurrency,
         lines: lines
           .filter((l) => l.account_id && (l.debit || l.credit))
           .map((l) => ({
