@@ -1,7 +1,17 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { api, type Account, type BankAccount, type Entity, type FxRate, type Rule, type RulePreview } from '../api'
+import {
+  api,
+  type Account,
+  type BankAccount,
+  type Entity,
+  type FxRate,
+  type FxStatus,
+  type Rule,
+  type RulePreview,
+} from '../api'
 import { useToast } from '../hooks/useToast'
+import { useEngagement } from '../period/PeriodContext'
 
 type SettingsTab = 'rules' | 'fx'
 
@@ -60,14 +70,22 @@ function draftPayload(draft: RuleDraft) {
   }
 }
 
+function periodEndDate(year: number, month: number) {
+  const last = new Date(year, month, 0).getDate()
+  return `${year}-${String(month).padStart(2, '0')}-${String(last).padStart(2, '0')}`
+}
+
 export function SettingsPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const tab = (searchParams.get('tab') === 'fx' ? 'fx' : 'rules') as SettingsTab
+  const { year, month, entityId } = useEngagement()
+  const periodEnd = useMemo(() => periodEndDate(year, month), [year, month])
   const [rules, setRules] = useState<Rule[]>([])
   const [accounts, setAccounts] = useState<Account[]>([])
   const [entities, setEntities] = useState<Entity[]>([])
   const [banks, setBanks] = useState<BankAccount[]>([])
   const [fx, setFx] = useState<FxRate[]>([])
+  const [fxStatus, setFxStatus] = useState<FxStatus | null>(null)
   const [audit, setAudit] = useState<Array<Record<string, unknown>>>([])
   const [error, setError] = useState<string | null>(null)
   const [editingId, setEditingId] = useState<number | 'new' | null>(null)
@@ -75,7 +93,7 @@ export function SettingsPage() {
   const [fxDraft, setFxDraft] = useState({
     from_currency: 'USD',
     to_currency: 'CAD',
-    rate_date: '2026-07-31',
+    rate_date: periodEndDate(2026, 7),
     rate: '',
     rate_type: 'closing',
   })
@@ -102,6 +120,18 @@ export function SettingsPage() {
   useEffect(() => {
     reload().catch((err: Error) => setError(err.message))
   }, [])
+
+  useEffect(() => {
+    setFxDraft((d) => ({ ...d, rate_date: periodEnd }))
+  }, [periodEnd])
+
+  useEffect(() => {
+    if (!entityId) return
+    api
+      .fxStatus({ entity_id: entityId, year, month })
+      .then(setFxStatus)
+      .catch((err: Error) => setError(err.message))
+  }, [entityId, year, month])
 
   const accountLabel = (id: number) => {
     const a = accounts.find((x) => x.id === id)
@@ -207,17 +237,23 @@ export function SettingsPage() {
       setFxDraft((d) => ({ ...d, rate: '' }))
       show('FX rate saved')
       await reload()
+      if (entityId) {
+        const status = await api.fxStatus({ entity_id: entityId, year, month })
+        setFxStatus(status)
+      }
     } catch (err) {
       setError((err as Error).message)
     }
   }
 
   const highlighted = useMemo(() => {
-    const usdCad = fx.filter((r) => r.from_currency === 'USD' && r.to_currency === 'CAD')
+    const usdCad = fx.filter(
+      (r) => r.from_currency === 'USD' && r.to_currency === 'CAD' && r.rate_date <= periodEnd,
+    )
     const closing = usdCad.find((r) => r.rate_type === 'closing')
     const average = usdCad.find((r) => r.rate_type === 'average')
     return { closing, average }
-  }, [fx])
+  }, [fx, periodEnd])
 
   return (
     <div>
@@ -484,7 +520,8 @@ export function SettingsPage() {
         <div className="panel-header">
           <h2>FX rates</h2>
           <span className="hint">
-            USD→CAD closing {highlighted.closing ? Number(highlighted.closing.rate).toFixed(4) : '—'}
+            As of {periodEnd} · USD→CAD closing{' '}
+            {highlighted.closing ? Number(highlighted.closing.rate).toFixed(4) : '—'}
             {highlighted.closing ? ` · ${highlighted.closing.rate_date}` : ''}
             {' · '}
             average {highlighted.average ? Number(highlighted.average.rate).toFixed(4) : '—'}
@@ -494,6 +531,16 @@ export function SettingsPage() {
           P&amp;L uses average; the balance sheet, cash, and intercompany use closing. Missing pairs stay
           missing — nothing is assumed at 1.
         </p>
+        {fxStatus && fxStatus.missing_pairs.length > 0 && (
+          <div className="inbox-fx-missing">
+            <strong>Missing FX — print is blocked</strong>
+            <span className="hint">
+              {fxStatus.missing_pairs.join(', ')}
+              {fxStatus.inbox_missing_count ? ` · ${fxStatus.inbox_missing_count} inbox line(s)` : ''}.
+              Amounts are not translated 1:1.
+            </span>
+          </div>
+        )}
         <div className="rule-form">
           <div className="rule-form-grid fx-form-grid">
             <label>
