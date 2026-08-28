@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
-from typing import NamedTuple, Optional
+from typing import Optional
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -10,10 +11,15 @@ from sqlalchemy.orm import Session
 from app.models import DimFx
 
 
-class FxTranslation(NamedTuple):
+@dataclass(frozen=True)
+class FxTranslation:
     amount: Decimal
     rate: Decimal
     missing: bool = False
+
+    def __iter__(self):
+        yield self.amount
+        yield self.rate
 
 
 def lookup_rate(
