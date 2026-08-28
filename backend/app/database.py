@@ -77,6 +77,26 @@ def _ensure_sqlite_columns() -> None:
             )
         _rebuild_wp_docs_entity_unique(conn)
 
+        rule_cols = {
+            row[1] for row in conn.execute(text("PRAGMA table_info(categorization_rules)")).fetchall()
+        }
+        if rule_cols and "rule_kind" not in rule_cols:
+            conn.execute(
+                text("ALTER TABLE categorization_rules ADD COLUMN rule_kind VARCHAR(32) DEFAULT 'gl'")
+            )
+            conn.execute(
+                text(
+                    "UPDATE categorization_rules SET rule_kind = 'bank_transfer' "
+                    "WHERE lower(name) LIKE 'transfer:%'"
+                )
+            )
+            conn.execute(
+                text(
+                    "UPDATE categorization_rules SET rule_kind = 'intercompany' "
+                    "WHERE lower(name) LIKE 'intercompany:%'"
+                )
+            )
+
 
 def _rebuild_wp_docs_entity_unique(conn) -> None:
     """SQLite table UNIQUE(year, month, key) cannot be dropped — rebuild to include entity_id."""

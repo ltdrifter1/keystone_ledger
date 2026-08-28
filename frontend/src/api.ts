@@ -54,6 +54,7 @@ export type Rule = {
   name: string
   priority: number
   is_active: boolean
+  rule_kind?: string
   match_description_contains?: string | null
   match_description_regex?: string | null
   match_counterparty?: string | null
@@ -75,6 +76,42 @@ export type FxRate = {
   rate_date: string
   rate: string
   rate_type: string
+}
+
+export type FxPairStatus = {
+  from_currency: string
+  to_currency: string
+  rate_type: string
+  rate: string | null
+  rate_date: string | null
+  missing: boolean
+  used_for: string
+}
+
+export type FxStatus = {
+  entity_id: number
+  entity_code: string
+  functional_currency: string
+  as_of: string
+  pairs: FxPairStatus[]
+  missing_pairs: string[]
+  inbox_missing_count: number
+  can_print: boolean
+}
+
+export type RulePreview = {
+  matched_uncategorized: number
+  matched_total: number
+  sample: Array<{
+    id: number
+    txn_date: string
+    description: string
+    amount: string
+    currency: string
+    entity_id: number
+    bank_account_id?: number | null
+    status: string
+  }>
 }
 
 export type SplitLine = {
@@ -102,6 +139,7 @@ export type Transaction = {
   is_reconciled: boolean
   is_period_locked?: boolean
   is_editable?: boolean
+  fx_missing?: boolean
   counterparty?: string
   reference?: string
   counter_entity_id?: number
@@ -842,7 +880,9 @@ export const api = {
       body: JSON.stringify({ splits }),
     }),
   applyRules: () =>
-    request<{ categorized: number; skipped_locked?: number }>('/transactions/apply-rules', { method: 'POST' }),
+    request<{ categorized: number; skipped_locked?: number; ic_matched?: number }>('/transactions/apply-rules', {
+      method: 'POST',
+    }),
   autoMatchIc: () => request<{ matched: number }>('/transactions/intercompany/auto-match', { method: 'POST' }),
   importBank: async (bankAccountId: number, file: File) => {
     const fd = new FormData()
@@ -992,7 +1032,21 @@ export const api = {
     }),
   deleteRule: (id: number) =>
     request<{ deleted: number }>(`/rules/${id}`, { method: 'DELETE' }),
+  previewRule: (body: Record<string, unknown>) =>
+    request<RulePreview>('/rules/preview', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }),
   fxRates: () => request<FxRate[]>('/fx-rates'),
+  fxStatus: (params: { entity_id: number | string; year: number; month: number }) => {
+    const qs = new URLSearchParams({
+      entity_id: String(params.entity_id),
+      year: String(params.year),
+      month: String(params.month),
+    })
+    return request<FxStatus>(`/fx-rates/status?${qs}`)
+  },
   createFxRate: (body: {
     from_currency: string
     to_currency: string

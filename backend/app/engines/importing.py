@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.engines.audit import write_audit
 from app.engines.fingerprint import transaction_fingerprint
-from app.engines.fx import translate_amount
+from app.engines.fx import persistable_fx, translate_amount
 from app.engines.period_locks import PeriodLockedError, assert_bank_period_open
 from app.engines.rules import apply_rules_batch
 from app.models import BankAccount, DimDate, DimEntity, DimScenario, Transaction
@@ -188,13 +188,15 @@ def import_bank_rows(
 
             entity = db.get(DimEntity, bank.entity_id)
             target_ccy = entity.functional_currency if entity else currency
-            amount_reporting, fx_rate = translate_amount(
+            translated = translate_amount(
                 db,
                 amount=amount,
                 from_currency=currency,
                 to_currency=target_ccy,
                 as_of=row.txn_date,
+                rate_type="closing",
             )
+            amount_reporting, fx_rate = persistable_fx(translated)
             date_key = ensure_date_dimension(db, row.txn_date)
 
             txn = Transaction(

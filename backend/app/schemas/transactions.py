@@ -66,6 +66,7 @@ class TransactionOut(ORMModel):
     bank_account_name: Optional[str] = None
     is_period_locked: bool = False
     is_editable: bool = True
+    fx_missing: bool = False
 
 
 class TransactionCreate(BaseModel):

@@ -1807,8 +1807,19 @@ a.kpi {
   color: var(--text-dim);
 }
 
-.inbox-pending {
-  padding: 0 1rem 0.5rem;
+.inbox-fx-missing {
+  margin: 0 1rem 0.75rem;
+  padding: 0.7rem 0.9rem;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 107, 107, 0.4);
+  background: rgba(255, 107, 107, 0.08);
+  display: grid;
+  gap: 0.2rem;
+}
+
+.inbox-fx-missing strong {
+  color: var(--danger);
+  font-size: 0.86rem;
 }
 
 .inbox-pending strong {

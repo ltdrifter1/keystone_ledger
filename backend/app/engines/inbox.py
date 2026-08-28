@@ -7,7 +7,8 @@ from sqlalchemy.orm import Session
 
 from app.engines.audit import write_audit
 from app.engines.categorization import categorize_transaction
-from app.engines.rules import create_rule_from_transaction, description_token
+from app.engines.rules import KIND_INTERCOMPANY, KIND_TRANSFER, create_rule_from_transaction, payee_token
+from app.engines.intercompany import auto_match_intercompany
 from app.models import BankAccount, DimAccount, DimEntity, Transaction
 from app.schemas.transactions import CategorizeRequest
 
@@ -62,12 +63,13 @@ def mark_bank_transfer(
         actor=actor,
     )
     if create_rule:
-        token = description_token(txn) or txn.counterparty or str(txn.id)
+        token = payee_token(txn) or txn.counterparty or str(txn.id)
         create_rule_from_transaction(
             db,
             txn,
             name=f"Transfer: {token}",
             lock_bank_account=False,
+            kind=KIND_TRANSFER,
             actor=actor,
         )
     write_audit(
@@ -111,14 +113,17 @@ def mark_intercompany(
         actor=actor,
     )
     if create_rule:
-        token = description_token(txn) or counter.code
+        token = payee_token(txn) or counter.code
         create_rule_from_transaction(
             db,
             txn,
             name=f"Intercompany: {token}",
             lock_bank_account=False,
+            kind=KIND_INTERCOMPANY,
             actor=actor,
         )
+    db.flush()
+    auto_match_intercompany(db, actor=actor, txn_id=txn.id)
     write_audit(
         db,
         entity_table="transactions",
