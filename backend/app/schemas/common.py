@@ -150,6 +150,23 @@ class RuleCreate(BaseModel):
     assign_counter_entity_id: Optional[int] = None
 
 
+class RuleUpdate(BaseModel):
+    name: Optional[str] = None
+    priority: Optional[int] = None
+    is_active: Optional[bool] = None
+    match_description_contains: Optional[str] = None
+    match_description_regex: Optional[str] = None
+    match_counterparty: Optional[str] = None
+    match_amount_min: Optional[Decimal] = None
+    match_amount_max: Optional[Decimal] = None
+    match_currency: Optional[str] = None
+    match_entity_id: Optional[int] = None
+    match_bank_account_id: Optional[int] = None
+    assign_account_id: Optional[int] = None
+    assign_department_id: Optional[int] = None
+    assign_counter_entity_id: Optional[int] = None
+
+
 class AuditLogOut(ORMModel):
     id: int
     entity_table: str

@@ -115,6 +115,16 @@ class CategorizeRequest(BaseModel):
     remember_description: bool = True
 
 
+class MarkTransferRequest(BaseModel):
+    other_bank_account_id: Optional[int] = None
+    create_rule: bool = True
+
+
+class MarkIntercompanyRequest(BaseModel):
+    counter_entity_id: int
+    create_rule: bool = True
+
+
 class BulkCategorizeRequest(BaseModel):
     transaction_ids: list[int]
     account_id: int

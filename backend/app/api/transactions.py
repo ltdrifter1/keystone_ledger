@@ -10,6 +10,7 @@ from app.auth import get_actor
 from app.database import get_db
 from app.engines.audit import write_audit
 from app.engines.categorization import categorize_transaction, split_transaction
+from app.engines.inbox import mark_bank_transfer, mark_intercompany
 from app.engines.intercompany import auto_match_intercompany, find_intercompany_candidates
 from app.engines.period_locks import PeriodLockedError, assert_bank_period_open, assert_txn_editable, locked_recon_for_txn
 from app.engines.rules import apply_rules_batch
@@ -18,6 +19,8 @@ from app.schemas.transactions import (
     BulkCategorizeRequest,
     CategorizeRequest,
     IntercompanyMatchOut,
+    MarkIntercompanyRequest,
+    MarkTransferRequest,
     SplitRequest,
     TransactionCreate,
     TransactionOut,
@@ -183,6 +186,64 @@ def update_transaction(
 
     write_audit(db, entity_table="transactions", entity_id=txn.id, action="update", actor=actor)
     db.commit()
+    loaded = _load_txn(db, txn_id)
+    return _to_out(db, loaded)
+
+
+@router.post("/{txn_id}/mark-transfer", response_model=TransactionOut)
+def mark_transfer(
+    txn_id: int,
+    payload: MarkTransferRequest,
+    db: Session = Depends(get_db),
+    actor: str = Depends(get_actor),
+) -> TransactionOut:
+    txn = db.get(Transaction, txn_id)
+    if not txn:
+        raise HTTPException(404, "Transaction not found")
+    try:
+        mark_bank_transfer(
+            db,
+            txn,
+            other_bank_account_id=payload.other_bank_account_id,
+            create_rule=payload.create_rule,
+            actor=actor,
+        )
+        db.commit()
+    except PeriodLockedError as exc:
+        db.rollback()
+        raise HTTPException(409, str(exc)) from exc
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(400, str(exc)) from exc
+    loaded = _load_txn(db, txn_id)
+    return _to_out(db, loaded)
+
+
+@router.post("/{txn_id}/mark-intercompany", response_model=TransactionOut)
+def mark_ic(
+    txn_id: int,
+    payload: MarkIntercompanyRequest,
+    db: Session = Depends(get_db),
+    actor: str = Depends(get_actor),
+) -> TransactionOut:
+    txn = db.get(Transaction, txn_id)
+    if not txn:
+        raise HTTPException(404, "Transaction not found")
+    try:
+        mark_intercompany(
+            db,
+            txn,
+            counter_entity_id=payload.counter_entity_id,
+            create_rule=payload.create_rule,
+            actor=actor,
+        )
+        db.commit()
+    except PeriodLockedError as exc:
+        db.rollback()
+        raise HTTPException(409, str(exc)) from exc
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(400, str(exc)) from exc
     loaded = _load_txn(db, txn_id)
     return _to_out(db, loaded)
 

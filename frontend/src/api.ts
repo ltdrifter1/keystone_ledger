@@ -54,9 +54,27 @@ export type Rule = {
   name: string
   priority: number
   is_active: boolean
-  match_description_contains?: string
+  match_description_contains?: string | null
+  match_description_regex?: string | null
+  match_counterparty?: string | null
+  match_amount_min?: string | null
+  match_amount_max?: string | null
+  match_currency?: string | null
+  match_entity_id?: number | null
+  match_bank_account_id?: number | null
   assign_account_id: number
+  assign_department_id?: number | null
+  assign_counter_entity_id?: number | null
   hit_count: number
+}
+
+export type FxRate = {
+  id: number
+  from_currency: string
+  to_currency: string
+  rate_date: string
+  rate: string
+  rate_type: string
 }
 
 export type SplitLine = {
@@ -962,6 +980,39 @@ export const api = {
     request<Reconciliation>(`/reconciliations/${id}/complete?lock=true`, { method: 'POST' }),
   createRule: (body: Record<string, unknown>) =>
     request<Rule>('/rules', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }),
+  updateRule: (id: number, body: Record<string, unknown>) =>
+    request<Rule>(`/rules/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }),
+  deleteRule: (id: number) =>
+    request<{ deleted: number }>(`/rules/${id}`, { method: 'DELETE' }),
+  fxRates: () => request<FxRate[]>('/fx-rates'),
+  createFxRate: (body: {
+    from_currency: string
+    to_currency: string
+    rate_date: string
+    rate: number | string
+    rate_type?: string
+  }) =>
+    request<FxRate>('/fx-rates', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }),
+  markTransfer: (id: number, body: { other_bank_account_id?: number | null; create_rule?: boolean } = {}) =>
+    request<Transaction>(`/transactions/${id}/mark-transfer`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }),
+  markIntercompany: (id: number, body: { counter_entity_id: number; create_rule?: boolean }) =>
+    request<Transaction>(`/transactions/${id}/mark-intercompany`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),

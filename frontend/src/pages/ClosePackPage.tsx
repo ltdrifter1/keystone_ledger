@@ -24,6 +24,7 @@ import {
   type ReconWorkspace,
 } from '../api'
 import { AccountPicker } from '../components/AccountPicker'
+import { BankInboxPanel } from '../components/BankInboxPanel'
 import { JournalVoucherModal } from '../components/JournalVoucherModal'
 import { useToast } from '../hooks/useToast'
 import { money } from '../lib/format'
@@ -509,9 +510,8 @@ export function ClosePackPage() {
         <div>
           <h1>Books</h1>
           <p>
-            {journalLed
-              ? `Journals for ${entityCode ?? 'entity'} · ${year}-${String(month).padStart(2, '0')}. This is the book, not a close file.`
-              : `Bank book for ${entityCode ?? 'entity'} · ${year}-${String(month).padStart(2, '0')}. Categorize activity so the statements can print.`}
+            Bank inbox for {entityCode ?? 'entity'} · {year}-{String(month).padStart(2, '0')}. Mark
+            Transfer or Intercompany, or pick a GL. Rules and FX live in Settings.
           </p>
         </div>
         <div className="toolbar">
@@ -526,6 +526,20 @@ export function ClosePackPage() {
       </div>
 
       {error && <div className="error">{error}</div>}
+
+      {entityId && (
+        <BankInboxPanel
+          year={Number(year)}
+          month={Number(month)}
+          entityId={entityId}
+          entityCode={entityCode}
+          onChanged={() => {
+            void loadOverview()
+            api.bankFeeds().then(setFeeds).catch(() => undefined)
+          }}
+          onMessage={show}
+        />
+      )}
 
       {journalLed && (
         <section className="panel">
