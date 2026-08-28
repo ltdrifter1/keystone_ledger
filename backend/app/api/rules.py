@@ -6,7 +6,7 @@ from app.auth import get_actor
 from app.database import get_db
 from app.engines.audit import write_audit
 from app.models import CategorizationRule
-from app.schemas.common import RuleCreate, RuleOut
+from app.schemas.common import RuleCreate, RuleOut, RuleUpdate
 
 router = APIRouter(prefix="/rules")
 
@@ -33,12 +33,12 @@ def create_rule(
 
 @router.patch("/{rule_id}", response_model=RuleOut)
 def update_rule(
-    rule_id: int, payload: RuleCreate, db: Session = Depends(get_db), actor: str = Depends(get_actor)
+    rule_id: int, payload: RuleUpdate, db: Session = Depends(get_db), actor: str = Depends(get_actor)
 ) -> RuleOut:
     rule = db.get(CategorizationRule, rule_id)
     if not rule:
         raise HTTPException(404, "Rule not found")
-    for k, v in payload.model_dump().items():
+    for k, v in payload.model_dump(exclude_unset=True).items():
         setattr(rule, k, v)
     write_audit(db, entity_table="categorization_rules", entity_id=rule.id, action="update", actor=actor)
     db.commit()

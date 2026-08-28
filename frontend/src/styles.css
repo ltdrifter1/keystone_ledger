@@ -1785,3 +1785,83 @@ a.kpi {
     border-color: #ccc;
   }
 }
+
+/* —— Bank inbox + editable rules / FX —— */
+.bank-inbox {
+  margin-bottom: 0.85rem;
+}
+
+.bank-inbox .panel-header h2 {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.fx-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  align-items: center;
+  padding: 0.55rem 1rem 0.15rem;
+  font-size: 0.82rem;
+  color: var(--text-dim);
+}
+
+.inbox-pending {
+  padding: 0 1rem 0.5rem;
+}
+
+.inbox-pending strong {
+  display: block;
+  font-size: 0.82rem;
+  color: var(--accent-2);
+  margin-bottom: 0.35rem;
+}
+
+.inbox-row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  align-items: center;
+}
+
+.inbox-row-actions .account-picker {
+  min-width: 160px;
+  flex: 1 1 160px;
+}
+
+.inbox-row-actions .select {
+  max-width: 160px;
+}
+
+.rule-form {
+  padding: 0.75rem 1rem 0.25rem;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 0.25rem;
+}
+
+.rule-form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0.65rem;
+}
+
+.rule-form-grid label {
+  display: grid;
+  gap: 0.3rem;
+  color: var(--text-dim);
+  font-size: 0.8rem;
+}
+
+.rule-active {
+  align-content: end;
+  padding-bottom: 0.35rem;
+}
+
+.fx-form-grid {
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+}
+
+.dim-row td {
+  color: var(--text-faint);
+}

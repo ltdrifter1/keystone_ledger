@@ -95,22 +95,26 @@ def apply_rules_batch(db: Session, transactions: list[Transaction], actor: str =
     return count
 
 
+def description_token(txn: Transaction) -> Optional[str]:
+    if not txn.description:
+        return None
+    words = [w for w in re.split(r"\W+", txn.description) if len(w) >= 4]
+    return max(words, key=len) if words else txn.description[:40]
+
+
 def create_rule_from_transaction(
     db: Session,
     txn: Transaction,
     *,
     name: Optional[str] = None,
     remember_description: bool = True,
+    lock_bank_account: bool = False,
     actor: str = "system",
 ) -> CategorizationRule:
     if not txn.account_id:
         raise ValueError("Transaction must be categorized before creating a rule")
 
-    token = None
-    if remember_description and txn.description:
-        # Use a distinctive token from description (longest word >= 4 chars)
-        words = [w for w in re.split(r"\W+", txn.description) if len(w) >= 4]
-        token = max(words, key=len) if words else txn.description[:40]
+    token = description_token(txn) if remember_description else None
 
     rule = CategorizationRule(
         name=name or f"Auto: {token or txn.counterparty or txn.id}",
@@ -119,7 +123,8 @@ def create_rule_from_transaction(
         match_counterparty=txn.counterparty,
         match_currency=txn.currency,
         match_entity_id=txn.entity_id,
-        match_bank_account_id=txn.bank_account_id,
+        # Entity-wide by default so a remembered sweep/IC rule hits every bank of that company.
+        match_bank_account_id=txn.bank_account_id if lock_bank_account else None,
         assign_account_id=txn.account_id,
         assign_department_id=txn.department_id,
         assign_counter_entity_id=txn.counter_entity_id,
