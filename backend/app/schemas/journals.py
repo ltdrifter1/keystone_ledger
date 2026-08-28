@@ -20,7 +20,7 @@ class JournalCreate(BaseModel):
     memo: Optional[str] = None
     working_paper_key: Optional[str] = None
     source_transaction_id: Optional[int] = None
-    currency: str = "CAD"
+    currency: Optional[str] = None
     scenario_id: int = 1
 
 

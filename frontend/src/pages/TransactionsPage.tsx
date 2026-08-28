@@ -261,6 +261,20 @@ export function TransactionsPage() {
     }
   }
 
+  const onImportAdjPack = async (file: File | null) => {
+    if (!file) return
+    try {
+      const res = await api.importAdjPack(file, entityId ? Number(entityId) : undefined)
+      const errHint = res.errors?.length ? ` · ${res.errors.length} warnings` : ''
+      show(
+        `Adj pack: ${res.imported} journals · ${res.skipped} skipped${errHint}`,
+      )
+      await load()
+    } catch (e) {
+      setError((e as Error).message)
+    }
+  }
+
   const splitTotal = splitDrafts.reduce((sum, d) => sum + (Number(d.amount) || 0), 0)
   const splitTarget = active && splitForId === active.id ? Number(active.amount) : 0
 
@@ -269,7 +283,10 @@ export function TransactionsPage() {
       <div className="page-header">
         <div>
           <h1>Transactions</h1>
-          <p>Inline categorize · split · remember rules. Filter by CAN or USA — entities stay separate. Use Import synoptic for WBC cashbooks.</p>
+          <p>
+            Inline categorize · split · remember rules. WBC CAN and WBC USA stay separate. Import
+            synoptic for cashbooks, or an adjusting pack for FY journals.
+          </p>
         </div>
         <div className="toolbar">
           <label className="btn ghost">
@@ -317,6 +334,15 @@ export function TransactionsPage() {
               accept=".csv"
               hidden
               onChange={(e) => void onImportSynoptic(e.target.files?.[0] ?? null)}
+            />
+          </label>
+          <label className="btn">
+            Import adj pack
+            <input
+              type="file"
+              accept=".csv"
+              hidden
+              onChange={(e) => void onImportAdjPack(e.target.files?.[0] ?? null)}
             />
           </label>
         </div>

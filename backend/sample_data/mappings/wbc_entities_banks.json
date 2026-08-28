@@ -3,7 +3,7 @@
   "entities": [
     {
       "code": "CAN",
-      "name": "WBC Canada",
+      "name": "WBC CAN",
       "country": "Canada",
       "functional_currency": "CAD",
       "consolidation_method": "none",
@@ -75,18 +75,18 @@
     },
     {
       "code": "USA",
-      "name": "WBC United States",
+      "name": "WBC USA",
       "country": "United States",
       "functional_currency": "USD",
       "consolidation_method": "none",
       "banks": [
         {
           "gl_code": "1000",
-          "name": "USA Operating USD (pending synoptic)",
+          "name": "WBC USA 1010 Operating USD",
           "account_number": "USA-1010",
           "currency": "USD",
           "institution": "WBC",
-          "note": "Placeholder \u2014 import USA synoptic when available"
+          "adj_file": "synoptic/USA_ADJ_FY2026.csv"
         }
       ],
       "departments": [

@@ -11,7 +11,7 @@ function periodEndIso(year: number, month: number) {
 }
 
 export function AnalyticsPage({ embedded = false }: { embedded?: boolean }) {
-  const { year, month, label, entityId, entityCode } = useEngagement()
+  const { year, month, label, entityId, entityCode, entityCurrency } = useEngagement()
   const [pack, setPack] = useState<AnalyticsPack | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
@@ -23,7 +23,7 @@ export function AnalyticsPage({ embedded = false }: { embedded?: boolean }) {
       year,
       month,
       scenario_id: 1,
-      reporting_currency: 'CAD',
+      reporting_currency: entityCurrency || 'CAD',
       consolidate: !entityId,
       entity_ids: entityId ? [Number(entityId)] : null,
       as_of_date: periodEndIso(year, month),
@@ -32,7 +32,7 @@ export function AnalyticsPage({ embedded = false }: { embedded?: boolean }) {
       compare_prior_year: true,
       compare_budget: true,
     }),
-    [year, month, entityId],
+    [year, month, entityId, entityCurrency],
   )
 
   const load = useCallback(async () => {

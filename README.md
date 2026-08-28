@@ -49,9 +49,9 @@ uvicorn app.main:app --reload --port 8000
 
 API docs: http://127.0.0.1:8000/docs
 
-On first boot the app seeds **CAN** and **USA** as separate entities (no consolidation parent), the WBC chart of accounts extracted from the synoptic header map, CAN bank accounts (1010/1015/1030/1050), a USA operating placeholder, FX rates, report layouts, and the **CAN 1010** synoptic cashbook (`backend/sample_data/synoptic/`).
+On first boot the app seeds **WBC CAN** and **WBC USA** as separate companies (no consolidation parent), the WBC chart of accounts extracted from the synoptic header map, CAN bank accounts (1010/1015/1030/1050), a USA operating account, FX rates, report layouts, the **CAN 1010** synoptic cashbook (`backend/sample_data/synoptic/CAN_1010_WBC_JUL-2026.csv`), and **USA FY2026 adjusting journals** (`USA_ADJ_FY2026.csv`, year-end 31 July 2026).
 
-Import additional WBC synoptics via `POST /api/imports/synoptic` (or **Import synoptic** on Transactions) while filtering to the target entity bank — USA stays empty until its file is loaded.
+Import additional WBC synoptics via `POST /api/imports/synoptic` (or **Import synoptic** on Transactions) while filtering to the target entity bank. Import FY adjusting packs via `POST /api/imports/adj-pack` (or **Import adj pack**) — the file header (`WBC CAN` / `WBC USA`) selects the company.
 
 ### Frontend
 

@@ -5,7 +5,7 @@ import { api, type EngagementHome } from '../api'
 import { useEngagement } from '../period/PeriodContext'
 
 export function HomePage() {
-  const { year, month, label, entityId, entityCode, setPeriod } = useEngagement()
+  const { year, month, label, entityId, entityCode, entityName, setPeriod } = useEngagement()
   const [searchParams] = useSearchParams()
   const [home, setHome] = useState<EngagementHome | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -52,9 +52,12 @@ export function HomePage() {
       <div className="page-header">
         <div>
           <h1>
-            {entityCode ?? 'Entity'} · {label}
+            {entityName ?? entityCode ?? 'Entity'} · {label}
           </h1>
-          <p>Work the queue top-down. Live feeds first, then binder sign-off, then statements.</p>
+          <p>
+            {entityName ?? 'WBC'} close — Work the queue top-down. Live feeds first, then binder
+            sign-off, then statements. WBC CAN and WBC USA stay separate.
+          </p>
         </div>
         <div className="toolbar">
           <Link className="btn" to={home.work_href}>

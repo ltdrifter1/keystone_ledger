@@ -47,7 +47,14 @@ def _age_bucket(txn_date: date, as_of: date) -> str:
     return "days_91_plus"
 
 
-def _report_filters(template, year: int, month: int, entity_id: int | None) -> ReportFilter:
+def _entity_currency(db: Session, entity_id: int | None) -> str:
+    if entity_id is None:
+        return "CAD"
+    ent = db.get(DimEntity, entity_id)
+    return (ent.functional_currency if ent else None) or "CAD"
+
+
+def _report_filters(template, year: int, month: int, entity_id: int | None, reporting_currency: str) -> ReportFilter:
     end = _month_end(year, month)
     entity_ids = [entity_id] if entity_id is not None else None
     consolidate = entity_id is None
@@ -58,7 +65,7 @@ def _report_filters(template, year: int, month: int, entity_id: int | None) -> R
             year=year,
             month=month,
             scenario_id=1,
-            reporting_currency="CAD",
+            reporting_currency=reporting_currency,
             consolidate=consolidate,
             entity_ids=entity_ids,
         )
@@ -70,14 +77,16 @@ def _report_filters(template, year: int, month: int, entity_id: int | None) -> R
         date_to=end,
         as_of_date=end,
         scenario_id=1,
-        reporting_currency="CAD",
+        reporting_currency=reporting_currency,
         consolidate=consolidate,
         entity_ids=entity_ids,
     )
 
 
-def _gl_amount(db: Session, template, year: int, month: int, entity_id: int | None) -> tuple[str, Decimal]:
-    filters = _report_filters(template, year, month, entity_id)
+def _gl_amount(
+    db: Session, template, year: int, month: int, entity_id: int | None, reporting_currency: str
+) -> tuple[str, Decimal]:
+    filters = _report_filters(template, year, month, entity_id, reporting_currency)
     report = build_report(db, filters)
     by_code = {line.line_code: line for line in report.lines}
     for code in template.line_codes:
@@ -379,7 +388,8 @@ def build_wp_schedule(
     start = _month_start(year, month)
     end = _month_end(year, month)
     account_ids = set(_account_ids(db, template))
-    line_code, gl = _gl_amount(db, template, year, month, entity_id)
+    ccy = _entity_currency(db, entity_id)
+    line_code, gl = _gl_amount(db, template, year, month, entity_id, ccy)
     report_type = template.statement
     period_rows = _fact_rows(
         db,
@@ -388,6 +398,7 @@ def build_wp_schedule(
         date_to=end,
         entity_id=entity_id,
         report_type=report_type,
+        reporting_currency=ccy,
     )
 
     if key in AGING_KEYS:
@@ -403,6 +414,7 @@ def build_wp_schedule(
             date_to=start - timedelta(days=1),
             entity_id=entity_id,
             report_type="balance_sheet",
+            reporting_currency=ccy,
         )
         in_period = _fact_rows(
             db,
@@ -411,6 +423,7 @@ def build_wp_schedule(
             date_to=end,
             entity_id=entity_id,
             report_type="balance_sheet",
+            reporting_currency=ccy,
         )
         body = _rollforward_schedule(opening_rows, in_period, gl)
     else:
