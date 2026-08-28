@@ -531,6 +531,9 @@ export function ClosePackPage() {
         <Link className="btn ghost" to={`/binder?year=${year}&month=${month}&key=cash`}>
           Cash WP C.1
         </Link>
+        <button className="btn" type="button" onClick={() => setJournalOpen(true)}>
+          <BookPlus size={14} /> Journal
+        </button>
       </div>
 
       {entityActions.length > 0 && (
