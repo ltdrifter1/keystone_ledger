@@ -747,6 +747,19 @@ export const api = {
       errors: string[]
     }>('/imports/synoptic', { method: 'POST', body: fd })
   },
+  importAdjPack: async (file: File, entityId?: number) => {
+    const fd = new FormData()
+    fd.append('file', file)
+    if (entityId) fd.append('entity_id', String(entityId))
+    return request<{
+      batch_id: string
+      imported: number
+      duplicates_flagged: number
+      auto_categorized: number
+      skipped: number
+      errors: string[]
+    }>('/imports/adj-pack', { method: 'POST', body: fd })
+  },
   report: (body: Record<string, unknown>) =>
     request<Report>('/reports/run', {
       method: 'POST',

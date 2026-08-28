@@ -1,4 +1,4 @@
-"""Seed WBC CAN + USA ledger from mapping files and optional CAN 1010 synoptic."""
+"""Seed WBC CAN + USA ledger from mapping files, CAN 1010 synoptic, and USA FY adj pack."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ from pathlib import Path
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.engines.adj_pack import USA_ADJ_PATH, import_adj_pack_path
 from app.engines.synoptic import import_synoptic_path
 from app.models import BankAccount, DimEntity
 from app.services.wbc_bootstrap import SAMPLE_ROOT, bootstrap_wbc_dimensions
@@ -21,8 +22,8 @@ def seed_if_empty(db: Session) -> bool:
 
 def seed_all(db: Session, *, load_synoptic: bool = True) -> dict:
     """
-    Bootstrap CAN + USA as separate entities with shared WBC chart of accounts.
-    When sample synoptic is present, load CAN 1010 activity (USA remains empty until its file is imported).
+    Bootstrap WBC CAN + WBC USA as separate companies with the shared chart.
+    Loads CAN 1010 cashbook activity and USA FY2026 adjusting journals when present.
     """
     meta = bootstrap_wbc_dimensions(db)
     db.flush()
@@ -52,6 +53,18 @@ def seed_all(db: Session, *, load_synoptic: bool = True) -> dict:
             }
         else:
             meta["synoptic"] = {"loaded": False, "reason": "CAN 1010 bank or file missing"}
+
+        usa = db.scalar(select(DimEntity).where(DimEntity.code == "USA"))
+        if usa and USA_ADJ_PATH.exists():
+            adj = import_adj_pack_path(db, USA_ADJ_PATH, entity_id=usa.id, actor="seed")
+            meta["usa_adj"] = {
+                "file": USA_ADJ_PATH.name,
+                "imported": adj.imported,
+                "skipped": adj.skipped,
+                "errors": adj.errors[:10],
+            }
+        else:
+            meta["usa_adj"] = {"loaded": False, "reason": "USA entity or adj pack missing"}
 
     db.commit()
     return meta

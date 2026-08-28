@@ -50,6 +50,10 @@ def post_journal(
     source_transaction_id: int | None = None,
     currency: str = "CAD",
     scenario_id: int = 1,
+    reference: str | None = None,
+    counter_entity_id: int | None = None,
+    counterparty: str | None = None,
+    external_id: str | None = None,
 ) -> Transaction:
     entity = db.get(DimEntity, entity_id)
     if not entity:
@@ -84,7 +88,7 @@ def post_journal(
         raise ValueError("Journal total cannot be zero")
 
     year, month = txn_date.year, txn_date.month
-    voucher = _next_voucher(db, year, month)
+    voucher = (reference or "").strip() or _next_voucher(db, year, month)
     note_parts = [p for p in (memo, f"WP {working_paper_key}" if working_paper_key else None) if p]
     parent_memo = " · ".join(note_parts) or None
     if source_transaction_id:
@@ -95,17 +99,20 @@ def post_journal(
         description=description.strip() or f"Adjusting journal {voucher}",
         memo=parent_memo,
         reference=voucher,
+        counterparty=counterparty,
         amount=Decimal("0"),
         currency=currency or entity.functional_currency,
         entity_id=entity_id,
         bank_account_id=None,
         account_id=None,
         scenario_id=scenario_id,
+        counter_entity_id=counter_entity_id,
         source_type="journal",
         status="categorized",
         is_split=True,
         date_key=ensure_date_dimension(db, txn_date),
         import_batch_id=f"journal:{working_paper_key or 'adj'}:{year}-{month:02d}",
+        external_id=external_id,
         created_by=actor,
         updated_by=actor,
     )

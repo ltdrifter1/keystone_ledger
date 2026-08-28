@@ -15,7 +15,7 @@ export function EngagementChip() {
         >
           {entities.map((e) => (
             <option key={e.id} value={e.id}>
-              {e.code}
+              {e.name || e.code}
             </option>
           ))}
         </select>

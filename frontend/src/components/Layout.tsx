@@ -24,7 +24,7 @@ const secondary = [
 ]
 
 export function Layout() {
-  const { year, month, entityCode, label } = useEngagement()
+  const { year, month, entityCode, entityName, label } = useEngagement()
   const { user, users, setUser } = useSession()
 
   const withPeriod = (to: string) => {
@@ -40,7 +40,7 @@ export function Layout() {
             Keystone <span>Ledger</span>
           </div>
           <div className="brand-sub">
-            {entityCode ?? '—'} · {label} · engagement close
+            {entityName ?? entityCode ?? '—'} · {label} · FYE Jul
           </div>
         </div>
         <EngagementChip />

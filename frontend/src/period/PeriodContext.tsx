@@ -18,6 +18,8 @@ export type EngagementState = {
   label: string
   entityId: string
   entityCode: string | null
+  entityName: string | null
+  entityCurrency: string
   entities: Entity[]
   setPeriod: (year: number, month: number) => void
   setYear: (year: number) => void
@@ -28,8 +30,8 @@ export type EngagementState = {
 const EngagementContext = createContext<EngagementState | null>(null)
 
 function readPeriod(): { year: number; month: number } {
-  const now = new Date()
-  const fallback = { year: now.getFullYear(), month: now.getMonth() + 1 }
+  // WBC fiscal year ends 31 July — default the close to last year's books.
+  const fallback = { year: 2026, month: 7 }
   try {
     const raw = localStorage.getItem(PERIOD_KEY)
     if (!raw) {
@@ -105,6 +107,16 @@ export function EngagementProvider({ children }: { children: ReactNode }) {
     return match?.code ?? null
   }, [entities, entityId])
 
+  const entityName = useMemo(() => {
+    const match = entities.find((e) => String(e.id) === entityId)
+    return match?.name ?? entityCode
+  }, [entities, entityId, entityCode])
+
+  const entityCurrency = useMemo(() => {
+    const match = entities.find((e) => String(e.id) === entityId)
+    return match?.functional_currency || 'CAD'
+  }, [entities, entityId])
+
   const value = useMemo<EngagementState>(
     () => ({
       year,
@@ -112,13 +124,15 @@ export function EngagementProvider({ children }: { children: ReactNode }) {
       label: `${year}-${String(month).padStart(2, '0')}`,
       entityId,
       entityCode,
+      entityName,
+      entityCurrency,
       entities,
       setPeriod,
       setYear,
       setMonth,
       setEntityId,
     }),
-    [year, month, entityId, entityCode, entities, setPeriod, setYear, setMonth, setEntityId],
+    [year, month, entityId, entityCode, entityName, entityCurrency, entities, setPeriod, setYear, setMonth, setEntityId],
   )
 
   return <EngagementContext.Provider value={value}>{children}</EngagementContext.Provider>

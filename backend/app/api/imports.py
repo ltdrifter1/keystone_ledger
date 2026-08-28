@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 
 from app.auth import get_actor
 from app.database import get_db
+from app.engines.adj_pack import import_adj_pack
 from app.engines.importing import import_bank_file
 from app.engines.synoptic import import_synoptic_file
 from app.schemas.transactions import ImportResult
@@ -52,6 +53,32 @@ async def import_synoptic(
             file_bytes=content,
             filename=file.filename or "synoptic.csv",
             bank_account_id=bank_account_id,
+            actor=actor,
+        )
+        db.commit()
+        return result
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(400, str(exc)) from exc
+
+
+@router.post("/adj-pack", response_model=ImportResult)
+async def import_adjusting_pack(
+    file: UploadFile = File(...),
+    entity_id: int | None = Form(None),
+    db: Session = Depends(get_db),
+    actor: str = Depends(get_actor),
+) -> ImportResult:
+    """Import a WBC FY adjusting-entry pack (journals) onto CAN or USA."""
+    content = await file.read()
+    if not content:
+        raise HTTPException(400, "Empty file")
+    try:
+        result = import_adj_pack(
+            db,
+            file_bytes=content,
+            filename=file.filename or "adj.csv",
+            entity_id=entity_id,
             actor=actor,
         )
         db.commit()

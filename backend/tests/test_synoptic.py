@@ -23,6 +23,7 @@ def test_mapping_files_present():
     assert (SAMPLE_ROOT / "mappings" / "wbc_chart_of_accounts.json").exists()
     assert (SAMPLE_ROOT / "mappings" / "wbc_entities_banks.json").exists()
     assert (SAMPLE_ROOT / "synoptic" / "CAN_1010_WBC_JUL-2026.csv").exists()
+    assert (SAMPLE_ROOT / "synoptic" / "USA_ADJ_FY2026.csv").exists()
 
 
 def test_entities_are_can_and_use_separate():
@@ -38,17 +39,19 @@ def test_entities_are_can_and_use_separate():
         assert use.consolidation_method == "none"
         assert can.functional_currency == "CAD"
         assert use.functional_currency == "USD"
+        assert can.name == "WBC CAN"
+        assert use.name == "WBC USA"
 
         can_banks = list(db.scalars(select(BankAccount).where(BankAccount.entity_id == can.id)).all())
         use_banks = list(db.scalars(select(BankAccount).where(BankAccount.entity_id == use.id)).all())
         assert any(b.account_number == "1010" for b in can_banks)
-        assert use_banks  # placeholder ready for USA synoptic
+        assert use_banks  # USA operating bank + FY adj journals
 
-        # No USA transactions from CAN synoptic seed
+        # USA books come from the FY adjusting pack, not the CAN cashbook
         use_txn = db.scalar(
             select(func.count()).select_from(Transaction).where(Transaction.entity_id == use.id)
         )
-        assert use_txn == 0
+        assert use_txn and use_txn >= 4
     finally:
         db.close()
 
