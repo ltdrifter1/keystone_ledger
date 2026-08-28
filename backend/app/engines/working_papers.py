@@ -192,29 +192,6 @@ TEMPLATES: list[WorkingPaperTemplate] = [
         sort_order=90,
     ),
     WorkingPaperTemplate(
-        key="bank_transfers",
-        wp_ref="D.6",
-        title="Due to / from other bank accounts",
-        statement="balance_sheet",
-        section="liability",
-        purpose="Park cashbook GL 1000 sweeps whose contra bank is not on these books.",
-        objective="Agree Cash Sweep In/Out/Visa (GL 1000) to the due-to-other-banks liability; do not double-count as cash.",
-        tie_out="BS due-to-other-banks = GL 1000 (cashbook); BS cash = reconciled bank book, not GL 1000.",
-        procedures=[
-            "List GL 1000 Cash Sweep In / Out / Visa activity through period end.",
-            "Confirm these are transfers to/from bank accounts not imported on this entity.",
-            "Agree the net to the Balance Sheet due-to-other-banks line.",
-            "Agree cash to the bank book (opening + activity), not to GL 1000.",
-        ],
-        evidence=[
-            "Synoptic cashbook GL 1000 columns",
-            "Bank book / reconciliation (C.1)",
-        ],
-        line_codes=["BS_CASH_XFER"],
-        account_codes=[],
-        sort_order=95,
-    ),
-    WorkingPaperTemplate(
         key="taxes_payable",
         wp_ref="D.2",
         title="Taxes Payable",
@@ -566,8 +543,6 @@ def ensure_working_paper_foundation(db: Session) -> dict[str, int]:
             notes = f"wp:{tmpl.key}"
         if code == "BS_CURRENT_EARNINGS":
             notes = "wp:pnl_analysis"
-        if code == "BS_CASH_XFER":
-            notes = "wp:bank_transfers"
         if code in existing_bs:
             row = existing_bs[code]
             changed = False

@@ -32,15 +32,13 @@ def test_all_main_section_templates_exist():
         "unearned_revenue",
         "equity",
         "pnl_analysis",
-        "bank_transfers",
     }
     assert expected <= keys
-    assert len(list_templates()) == 12
+    assert len(list_templates()) == 11
 
 
 def test_template_lookup_by_line_and_account():
     assert find_template(line_code="BS_CASH").key == "cash"
-    assert find_template(line_code="BS_CASH_XFER").key == "bank_transfers"
     assert find_template(account_codes=["2000"]).key == "ap"
     assert find_template(line_code="NI").key == "pnl_analysis"
     assert find_template(line_code="BS_SH_LOAN").wp_ref == "D.5"
