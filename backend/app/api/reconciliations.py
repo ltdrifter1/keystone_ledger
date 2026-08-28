@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.auth import get_actor
 from app.database import get_db
 from app.engines.reconciliation import (
     clear_all,
@@ -67,7 +68,9 @@ def list_unreconciled(bank_account_id: int | None = None, db: Session = Depends(
 
 
 @router.post("", response_model=ReconciliationOut)
-def create(payload: ReconciliationCreate, db: Session = Depends(get_db)) -> ReconciliationOut:
+def create(
+    payload: ReconciliationCreate, db: Session = Depends(get_db), actor: str = Depends(get_actor)
+) -> ReconciliationOut:
     try:
         recon = create_reconciliation(
             db,
@@ -76,7 +79,7 @@ def create(payload: ReconciliationCreate, db: Session = Depends(get_db)) -> Reco
             period_month=payload.period_month,
             statement_ending_balance=payload.statement_ending_balance,
             notes=payload.notes,
-            actor="controller",
+            actor=actor,
         )
         db.commit()
         db.refresh(recon)
@@ -127,12 +130,17 @@ def sync(recon_id: int, db: Session = Depends(get_db)) -> dict:
 
 
 @router.post("/{recon_id}/clear", response_model=ReconciliationOut)
-def clear_items(recon_id: int, payload: ReconciliationClearRequest, db: Session = Depends(get_db)) -> ReconciliationOut:
+def clear_items(
+    recon_id: int,
+    payload: ReconciliationClearRequest,
+    db: Session = Depends(get_db),
+    actor: str = Depends(get_actor),
+) -> ReconciliationOut:
     recon = db.get(Reconciliation, recon_id)
     if not recon:
         raise HTTPException(404, "Not found")
     try:
-        set_cleared(db, recon, payload.transaction_ids, payload.is_cleared, actor="controller")
+        set_cleared(db, recon, payload.transaction_ids, payload.is_cleared, actor=actor)
         db.commit()
         db.refresh(recon)
         return _to_out(db, recon)
@@ -141,12 +149,17 @@ def clear_items(recon_id: int, payload: ReconciliationClearRequest, db: Session 
 
 
 @router.post("/{recon_id}/clear-all")
-def clear_all_items(recon_id: int, only_categorized: bool = True, db: Session = Depends(get_db)) -> dict:
+def clear_all_items(
+    recon_id: int,
+    only_categorized: bool = True,
+    db: Session = Depends(get_db),
+    actor: str = Depends(get_actor),
+) -> dict:
     recon = db.get(Reconciliation, recon_id)
     if not recon:
         raise HTTPException(404, "Not found")
     try:
-        clear_all(db, recon, only_categorized=only_categorized, actor="controller")
+        clear_all(db, recon, only_categorized=only_categorized, actor=actor)
         db.commit()
         return recon_workspace(db, recon)
     except ValueError as exc:
@@ -154,12 +167,14 @@ def clear_all_items(recon_id: int, only_categorized: bool = True, db: Session = 
 
 
 @router.post("/{recon_id}/complete", response_model=ReconciliationOut)
-def complete(recon_id: int, lock: bool = True, db: Session = Depends(get_db)) -> ReconciliationOut:
+def complete(
+    recon_id: int, lock: bool = True, db: Session = Depends(get_db), actor: str = Depends(get_actor)
+) -> ReconciliationOut:
     recon = db.get(Reconciliation, recon_id)
     if not recon:
         raise HTTPException(404, "Not found")
     try:
-        complete_reconciliation(db, recon, actor="controller", lock=lock)
+        complete_reconciliation(db, recon, actor=actor, lock=lock)
         db.commit()
         db.refresh(recon)
         return _to_out(db, recon)
@@ -168,12 +183,14 @@ def complete(recon_id: int, lock: bool = True, db: Session = Depends(get_db)) ->
 
 
 @router.post("/{recon_id}/lock", response_model=ReconciliationOut)
-def lock(recon_id: int, db: Session = Depends(get_db)) -> ReconciliationOut:
+def lock(
+    recon_id: int, db: Session = Depends(get_db), actor: str = Depends(get_actor)
+) -> ReconciliationOut:
     recon = db.get(Reconciliation, recon_id)
     if not recon:
         raise HTTPException(404, "Not found")
     try:
-        lock_reconciliation(db, recon, actor="controller")
+        lock_reconciliation(db, recon, actor=actor)
         db.commit()
         db.refresh(recon)
         return _to_out(db, recon)

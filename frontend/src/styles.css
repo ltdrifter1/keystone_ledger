@@ -199,6 +199,15 @@ a {
   background: linear-gradient(180deg, #45e4a0, #2bb87a);
 }
 
+.btn.primary:disabled,
+.btn.primary:disabled:hover {
+  background: var(--bg-3);
+  color: var(--text-faint);
+  border: 1px solid var(--line);
+  filter: none;
+  opacity: 1;
+}
+
 .btn.ghost {
   background: transparent;
 }
@@ -1569,6 +1578,35 @@ a.kpi {
   justify-content: flex-end;
   gap: 0.5rem;
   margin-top: 0.5rem;
+}
+
+.user-chip {
+  margin-top: auto;
+  display: grid;
+  gap: 0.25rem;
+  padding: 0.55rem 0.6rem;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--bg-2);
+}
+
+.modal.wide {
+  width: min(820px, calc(100vw - 2rem));
+}
+
+.warn-text {
+  color: var(--warn);
+}
+
+.wp-evidence-list.faint {
+  opacity: 0.65;
+  font-size: 0.82rem;
+}
+
+.wp-evidence-list li {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
 }
 
 .kbd {

@@ -1,7 +1,27 @@
 const BASE = '/api'
+const ACTOR_KEY = 'keystone.user'
+
+export function setActorUsername(username: string) {
+  try {
+    localStorage.setItem(ACTOR_KEY, username)
+  } catch {
+    /* ignore */
+  }
+}
+
+export function getActorUsername(): string | null {
+  try {
+    return localStorage.getItem(ACTOR_KEY)
+  } catch {
+    return null
+  }
+}
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, init)
+  const headers = new Headers(init?.headers)
+  const actor = getActorUsername()
+  if (actor) headers.set('X-Keystone-Actor', actor)
+  const res = await fetch(`${BASE}${path}`, { ...init, headers })
   if (!res.ok) {
     const text = await res.text()
     let detail = text
@@ -901,6 +921,46 @@ export const api = {
       body: JSON.stringify(body),
     })
   },
+  session: () => request<SessionPayload>('/session'),
+  switchSession: (username: string) =>
+    request<SessionPayload>('/session/switch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username }),
+    }),
+  postJournal: (body: {
+    txn_date: string
+    entity_id: number
+    description: string
+    lines: Array<{ account_id: number; debit?: number | string; credit?: number | string; memo?: string }>
+    memo?: string
+    working_paper_key?: string
+    source_transaction_id?: number
+    currency?: string
+  }) =>
+    request<JournalVoucher>('/journals', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }),
+  journals: (params: { year?: number; month?: number; entity_id?: number; working_paper_key?: string }) => {
+    const qs = new URLSearchParams()
+    if (params.year) qs.set('year', String(params.year))
+    if (params.month) qs.set('month', String(params.month))
+    if (params.entity_id) qs.set('entity_id', String(params.entity_id))
+    if (params.working_paper_key) qs.set('working_paper_key', params.working_paper_key)
+    return request<JournalVoucher[]>(`/journals?${qs}`)
+  },
+  attachments: (entity_table: string, entity_id: number) =>
+    request<EvidenceFile[]>(`/attachments?entity_table=${entity_table}&entity_id=${entity_id}`),
+  uploadAttachment: async (entity_table: string, entity_id: number, file: File) => {
+    const fd = new FormData()
+    fd.append('entity_table', entity_table)
+    fd.append('entity_id', String(entity_id))
+    fd.append('file', file)
+    return request<EvidenceFile>('/attachments', { method: 'POST', body: fd })
+  },
+  deleteAttachment: (id: number) => request<{ deleted: number }>(`/attachments/${id}`, { method: 'DELETE' }),
 }
 
 export type BinderDocumentIndex = {
@@ -1009,6 +1069,7 @@ export type BinderDocument = BinderDocumentIndex & {
   period_month: number
   period_label: string
   period_end: string
+  document_id?: number | null
   objective: string
   tie_out: string
   procedures: string[]
@@ -1016,6 +1077,9 @@ export type BinderDocument = BinderDocumentIndex & {
   checked: number[]
   notes?: string | null
   cash_schedule?: CashReconSchedule | null
+  schedule?: WpSchedule | null
+  attachments?: EvidenceFile[]
+  attachment_count?: number
   can_prepare?: boolean
   can_review?: boolean
   gate_messages?: string[]
@@ -1042,4 +1106,113 @@ export type BinderDocument = BinderDocumentIndex & {
       is_reconciled: boolean
     }>
   } | null
+}
+
+export type SessionUser = {
+  id: number
+  username: string
+  display_name: string
+  initials: string
+  role: string
+}
+
+export type SessionPayload = { user: SessionUser; users: SessionUser[] }
+
+export type JournalVoucher = {
+  id: number
+  voucher?: string | null
+  txn_date: string
+  description: string
+  memo?: string | null
+  entity_id: number
+  entity_code?: string | null
+  currency: string
+  lines: Array<{
+    account_id: number
+    account_code?: string
+    account_name?: string
+    debit: number
+    credit: number
+    amount: number
+    memo?: string | null
+  }>
+  created_by?: string | null
+}
+
+export type EvidenceFile = {
+  id: number
+  filename: string
+  content_type?: string
+  uploaded_by?: string
+  uploaded_at?: string | null
+  size_bytes?: number | null
+}
+
+export type WpSchedule = {
+  kind: string
+  key?: string
+  line_code?: string
+  is_tied: boolean
+  gl_amount: number
+  difference: number
+  schedule_total?: number
+  gate_messages?: string[]
+  can_prepare?: boolean
+  can_review?: boolean
+  buckets?: Record<string, number>
+  parties?: Array<{
+    counterparty: string
+    current: number
+    days_31_60: number
+    days_61_90: number
+    days_91_plus: number
+    total: number
+    count: number
+  }>
+  opening?: number
+  additions?: number
+  reductions?: number
+  closing?: number
+  accounts?: Array<{
+    account_code: string
+    account_name: string
+    opening?: number
+    additions?: number
+    reductions?: number
+    closing?: number
+    total?: number
+    count?: number
+  }>
+  period_lines?: Array<{
+    transaction_id: number
+    txn_date: string
+    description: string
+    account_code: string
+    signed_amount: number
+    source_type?: string
+  }>
+  unmatched_count?: number
+  matched_count?: number
+  unmatched?: Array<{
+    transaction_id: number
+    txn_date: string
+    description: string
+    entity_code?: string
+    signed_amount: number
+  }>
+  matched?: Array<{
+    transaction_id: number
+    txn_date: string
+    description: string
+    entity_code?: string
+    signed_amount: number
+  }>
+  lines?: Array<{
+    transaction_id: number
+    txn_date: string
+    description: string
+    account_code: string
+    signed_amount: number
+  }>
+  row_count?: number
 }

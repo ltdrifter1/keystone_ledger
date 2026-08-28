@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
+from app.auth import get_actor
 from app.database import get_db
 from app.engines.binder import build_binder, get_binder_document, upsert_binder_document
 from app.engines.working_papers import (
@@ -62,6 +63,7 @@ def update_binder_doc(
     month: int = Query(..., ge=1, le=12),
     entity_id: int | None = None,
     db: Session = Depends(get_db),
+    actor: str = Depends(get_actor),
 ) -> BinderDocumentOut:
     try:
         data = upsert_binder_document(
@@ -74,7 +76,7 @@ def update_binder_doc(
             preparer=payload.preparer,
             reviewer=payload.reviewer,
             status=payload.status,
-            actor="controller",
+            actor=actor,
             entity_id=entity_id,
         )
         db.commit()

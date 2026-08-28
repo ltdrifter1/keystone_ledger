@@ -3,6 +3,7 @@ from decimal import Decimal
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from sqlalchemy.orm import Session
 
+from app.auth import get_actor
 from app.database import get_db
 from app.engines.close_pack import (
     build_close_pack_status,
@@ -43,6 +44,7 @@ async def run_pack(
     statement_ending_balance: Decimal = Form(...),
     file: UploadFile | None = File(None),
     db: Session = Depends(get_db),
+    actor: str = Depends(get_actor),
 ) -> ClosePackStatus:
     file_bytes = None
     filename = None
@@ -60,7 +62,7 @@ async def run_pack(
             statement_ending_balance=statement_ending_balance,
             file_bytes=file_bytes,
             filename=filename,
-            actor="controller",
+            actor=actor,
         )
         db.commit()
         return _status_model(result)
@@ -75,6 +77,7 @@ def run_pack_from_feed(
     period_year: int = Form(...),
     period_month: int = Form(...),
     db: Session = Depends(get_db),
+    actor: str = Depends(get_actor),
 ) -> ClosePackStatus:
     try:
         result = run_close_pack_from_feed(
@@ -82,7 +85,7 @@ def run_pack_from_feed(
             bank_account_id=bank_account_id,
             period_year=period_year,
             period_month=period_month,
-            actor="controller",
+            actor=actor,
         )
         db.commit()
         return _status_model(result)
@@ -102,7 +105,9 @@ def get_pack(recon_id: int, db: Session = Depends(get_db)) -> ClosePackStatus:
 
 
 @router.post("/{recon_id}/refresh", response_model=ClosePackStatus)
-def refresh_pack(recon_id: int, db: Session = Depends(get_db)) -> ClosePackStatus:
+def refresh_pack(
+    recon_id: int, db: Session = Depends(get_db), actor: str = Depends(get_actor)
+) -> ClosePackStatus:
     from app.engines.close_pack import auto_clear_statement_items
     from app.engines.rules import apply_rules_batch
     from sqlalchemy import select
@@ -121,8 +126,8 @@ def refresh_pack(recon_id: int, db: Session = Depends(get_db)) -> ClosePackStatu
             )
         )
     )
-    apply_rules_batch(db, uncat, actor="controller")
-    auto_clear_statement_items(db, recon, actor="controller")
+    apply_rules_batch(db, uncat, actor=actor)
+    auto_clear_statement_items(db, recon, actor=actor)
     data = build_close_pack_status(db, recon)
     db.commit()
     return _status_model(data)
@@ -134,6 +139,7 @@ def categorize_exception(
     txn_id: int,
     payload: CategorizeExceptionRequest,
     db: Session = Depends(get_db),
+    actor: str = Depends(get_actor),
 ) -> ClosePackStatus:
     try:
         data = resolve_exception_categorize(
@@ -143,7 +149,7 @@ def categorize_exception(
             account_id=payload.account_id,
             create_rule=payload.create_rule,
             clear_after=payload.clear_after,
-            actor="controller",
+            actor=actor,
         )
         db.commit()
         return _status_model(data)
@@ -159,6 +165,7 @@ def clear_exception(
     txn_id: int,
     payload: ClearExceptionRequest,
     db: Session = Depends(get_db),
+    actor: str = Depends(get_actor),
 ) -> ClosePackStatus:
     try:
         data = resolve_exception_clear(
@@ -166,7 +173,7 @@ def clear_exception(
             reconciliation_id=recon_id,
             transaction_id=txn_id,
             is_cleared=payload.is_cleared,
-            actor="controller",
+            actor=actor,
         )
         db.commit()
         return _status_model(data)
@@ -176,13 +183,15 @@ def clear_exception(
 
 
 @router.post("/{recon_id}/exceptions/{txn_id}/void-duplicate", response_model=ClosePackStatus)
-def void_duplicate(recon_id: int, txn_id: int, db: Session = Depends(get_db)) -> ClosePackStatus:
+def void_duplicate(
+    recon_id: int, txn_id: int, db: Session = Depends(get_db), actor: str = Depends(get_actor)
+) -> ClosePackStatus:
     try:
         data = resolve_exception_void_duplicate(
             db,
             reconciliation_id=recon_id,
             transaction_id=txn_id,
-            actor="controller",
+            actor=actor,
         )
         db.commit()
         return _status_model(data)
@@ -192,9 +201,11 @@ def void_duplicate(recon_id: int, txn_id: int, db: Session = Depends(get_db)) ->
 
 
 @router.post("/{recon_id}/lock", response_model=ClosePackStatus)
-def lock_pack(recon_id: int, db: Session = Depends(get_db)) -> ClosePackStatus:
+def lock_pack(
+    recon_id: int, db: Session = Depends(get_db), actor: str = Depends(get_actor)
+) -> ClosePackStatus:
     try:
-        data = lock_close_pack(db, recon_id, actor="controller")
+        data = lock_close_pack(db, recon_id, actor=actor)
         db.commit()
         return _status_model(data)
     except ValueError as exc:
@@ -203,7 +214,9 @@ def lock_pack(recon_id: int, db: Session = Depends(get_db)) -> ClosePackStatus:
 
 
 @router.post("/month/lock", response_model=MonthCloseOverview)
-def lock_month_endpoint(year: int, month: int, db: Session = Depends(get_db)) -> MonthCloseOverview:
-    data = lock_month(db, year, month, actor="controller")
+def lock_month_endpoint(
+    year: int, month: int, db: Session = Depends(get_db), actor: str = Depends(get_actor)
+) -> MonthCloseOverview:
+    data = lock_month(db, year, month, actor=actor)
     db.commit()
     return MonthCloseOverview.model_validate(data)

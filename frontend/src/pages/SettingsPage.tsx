@@ -72,6 +72,7 @@ export function SettingsPage() {
               <thead>
                 <tr>
                   <th>When</th>
+                  <th>Who</th>
                   <th>Action</th>
                   <th>Entity</th>
                   <th>Field</th>
@@ -81,6 +82,7 @@ export function SettingsPage() {
                 {audit.map((row) => (
                   <tr key={String(row.id)}>
                     <td>{new Date(String(row.created_at)).toLocaleString()}</td>
+                    <td>{String(row.actor ?? '—')}</td>
                     <td>{String(row.action)}</td>
                     <td>
                       {String(row.entity_table)} #{String(row.entity_id)}

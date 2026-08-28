@@ -10,6 +10,7 @@ import {
   Rows3,
   ArrowRight,
   Radio,
+  BookPlus,
 } from 'lucide-react'
 import {
   api,
@@ -23,6 +24,7 @@ import {
   type ReconWorkspace,
 } from '../api'
 import { AccountPicker } from '../components/AccountPicker'
+import { JournalVoucherModal } from '../components/JournalVoucherModal'
 import { useToast } from '../hooks/useToast'
 import { money } from '../lib/format'
 import { useEngagement } from '../period/PeriodContext'
@@ -55,6 +57,7 @@ export function ClosePackPage() {
   const [mode, setMode] = useState<Mode>((searchParams.get('mode') as Mode) || 'exceptions')
   const [kindFilter, setKindFilter] = useState(searchParams.get('filter') || '')
   const [showUnclearedOnly, setShowUnclearedOnly] = useState(searchParams.get('filter') === 'uncleared')
+  const [journalOpen, setJournalOpen] = useState(false)
   const { toast, show } = useToast()
 
   useEffect(() => {
@@ -528,6 +531,9 @@ export function ClosePackPage() {
         <Link className="btn ghost" to={`/binder?year=${year}&month=${month}&key=cash`}>
           Cash WP C.1
         </Link>
+        <button className="btn" type="button" onClick={() => setJournalOpen(true)}>
+          <BookPlus size={14} /> Journal
+        </button>
       </div>
 
       {entityActions.length > 0 && (
@@ -717,6 +723,9 @@ export function ClosePackPage() {
                   <>
                     <button className="btn" onClick={() => void refreshActive()}>
                       <RefreshCw size={14} /> Refresh
+                    </button>
+                    <button className="btn" onClick={() => setJournalOpen(true)}>
+                      <BookPlus size={14} /> Journal
                     </button>
                     <button className="btn primary" disabled={!active.can_lock} onClick={() => void lockActive()}>
                       <Lock size={14} /> Complete & lock
@@ -1070,6 +1079,19 @@ export function ClosePackPage() {
           )}
         </section>
       </div>
+      <JournalVoucherModal
+        open={journalOpen}
+        accounts={accounts}
+        sourceTransactionId={undefined}
+        defaultDescription={
+          active ? `Close adjustment · ${active.bank_account_name} ${active.period_label}` : undefined
+        }
+        onClose={() => setJournalOpen(false)}
+        onPosted={() => {
+          void refreshActive()
+          void loadOverview()
+        }}
+      />
       {toast && <div className="toast">{toast}</div>}
     </div>
   )

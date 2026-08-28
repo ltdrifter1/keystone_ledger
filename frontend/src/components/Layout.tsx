@@ -9,6 +9,7 @@ import {
 } from 'lucide-react'
 import { EngagementChip } from './PeriodChip'
 import { useEngagement } from '../period/PeriodContext'
+import { useSession } from '../session/SessionContext'
 
 const primary = [
   { to: '/', label: 'Home', icon: LayoutDashboard },
@@ -24,6 +25,7 @@ const secondary = [
 
 export function Layout() {
   const { year, month, entityCode, label } = useEngagement()
+  const { user, users, setUser } = useSession()
 
   const withPeriod = (to: string) => {
     const sep = to.includes('?') ? '&' : '?'
@@ -68,6 +70,24 @@ export function Layout() {
           Flow: <strong>Home</strong> queue → <strong>Work</strong> (live feed) →{' '}
           <strong>Binder</strong> sign-off → <strong>Statements</strong>.
         </div>
+        {user && (
+          <div className="user-chip" title="Named closer for audit and SoD">
+            <span className="period-chip-label">Signed in</span>
+            <select
+              className="select engagement-chip-select"
+              value={user.username}
+              onChange={(e) => void setUser(e.target.value)}
+              aria-label="Current user"
+            >
+              {users.map((u) => (
+                <option key={u.username} value={u.username}>
+                  {u.initials} · {u.display_name}
+                </option>
+              ))}
+            </select>
+            <span className="hint">{user.role}</span>
+          </div>
+        )}
       </aside>
       <main className="main">
         <Outlet />
