@@ -104,7 +104,7 @@ export function BankInboxPanel({ year, month, entityId, entityCode, onChanged, o
     onMessage?.(msg)
   }
 
-  const run = async (txnId: number, work: () => Promise<void>, ok: string) => {
+  const run = async (txnId: number, work: () => Promise<unknown>, ok: string) => {
     setBusyId(txnId)
     setError(null)
     try {
