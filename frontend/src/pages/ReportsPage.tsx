@@ -37,6 +37,7 @@ export function ReportsPage({ forcedType }: { forcedType?: 'income_statement' | 
   const [compareYear, setCompareYear] = useState(false)
   const [compareBudget, setCompareBudget] = useState(false)
   const [showRefs, setShowRefs] = useState(false)
+  const [showZeros, setShowZeros] = useState(false)
   const [entities, setEntities] = useState<Entity[]>([])
   const [scenarios, setScenarios] = useState<Scenario[]>([])
   const [report, setReport] = useState<Report | null>(null)
@@ -99,8 +100,9 @@ export function ReportsPage({ forcedType }: { forcedType?: 'income_statement' | 
       compare_prior_period: comparePrior,
       compare_prior_year: compareYear,
       compare_budget: compareBudget,
+      include_zero_lines: showZeros,
     }),
-    [activeType, reportPeriod, year, month, scenarioId, entityId, compareScenarioId, asOf, comparePrior, compareYear, compareBudget, entityCurrency],
+    [activeType, reportPeriod, year, month, scenarioId, entityId, compareScenarioId, asOf, comparePrior, compareYear, compareBudget, entityCurrency, showZeros],
   )
 
   const run = useCallback(async () => {
@@ -239,6 +241,10 @@ export function ReportsPage({ forcedType }: { forcedType?: 'income_statement' | 
         <label className="btn ghost">
           <input type="checkbox" checked={showRefs} onChange={(e) => setShowRefs(e.target.checked)} />
           WP refs
+        </label>
+        <label className="btn ghost">
+          <input type="checkbox" checked={showZeros} onChange={(e) => setShowZeros(e.target.checked)} />
+          Show zeros
         </label>
       </div>
 

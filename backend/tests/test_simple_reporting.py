@@ -7,19 +7,22 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 
 from app.database import SessionLocal, init_db
+from app.engines.drilldown import drill_report_line
 from app.engines.fx import lookup_rate, translate_amount
 from app.engines.reporting import (
     CURRENT_EARNINGS_CODE,
+    _entity_banks,
     _period_bounds,
     build_analytics_pack,
     build_report,
+    cashbook_book_cash,
     fiscal_year_start,
     period_label,
 )
 from app.engines.working_papers import ensure_working_paper_foundation
 from app.main import app
 from app.models import DimEntity
-from app.schemas.reports import ReportFilter
+from app.schemas.reports import DrillRequest, ReportFilter
 from app.services.seed import seed_if_empty
 
 client = TestClient(app)
@@ -100,6 +103,7 @@ def test_july_bs_current_earnings_matches_fiscal_ytd_ni():
         assert "As at 31 July 2026" in (bs.period_label or "")
         assert pnl.title == "Profit & Loss"
         assert "Fiscal YTD ended 31 July 2026" in (pnl.period_label or "")
+        assert bs.is_balanced is True
     finally:
         db.close()
 
@@ -120,6 +124,7 @@ def test_usa_trade_ar_excludes_interco():
                 entity_ids=[usa.id],
                 as_of_date=as_of,
                 date_to=as_of,
+                include_zero_lines=True,
             ),
         )
         by_code = {line.line_code: line for line in bs.lines}
@@ -128,6 +133,8 @@ def test_usa_trade_ar_excludes_interco():
         # Interco AP on 2000 + Interco AR net onto the IC line.
         assert abs(by_code["BS_IC"].amount) > Decimal("1000")
         assert by_code["BS_CURRENT_EARNINGS"].amount != 0
+        assert abs(by_code["BS_CASH_XFER"].amount) < Decimal("0.02")
+        assert bs.is_balanced is True
     finally:
         db.close()
 
@@ -203,3 +210,123 @@ def test_api_cover_and_balance_fields():
     assert "BS_CURRENT_EARNINGS" in codes
     assert "BS_TOT_L_AND_E" in codes
     assert "cash_flow" not in body["report_type"]
+    assert body["is_balanced"] is True
+
+
+def test_can_cashbook_bs_uses_bank_book_and_opening_equity():
+    db = SessionLocal()
+    try:
+        can, _usa = _entities(db)
+        as_of = date(2026, 7, 31)
+        bs = build_report(
+            db,
+            ReportFilter(
+                report_type="balance_sheet",
+                year=2026,
+                month=7,
+                scenario_id=1,
+                reporting_currency="CAD",
+                entity_ids=[can.id],
+                as_of_date=as_of,
+                date_to=as_of,
+            ),
+        )
+        by_code = {line.line_code: line for line in bs.lines}
+        book, _, _ = cashbook_book_cash(
+            db,
+            ReportFilter(
+                report_type="balance_sheet",
+                year=2026,
+                month=7,
+                scenario_id=1,
+                reporting_currency="CAD",
+                entity_ids=[can.id],
+                as_of_date=as_of,
+                date_to=as_of,
+            ),
+        )
+        assert abs(by_code["BS_CASH"].amount - book) < Decimal("0.02")
+        assert by_code["BS_EQUITY"].line_label == "Opening equity"
+        if len(_entity_banks(db, [can.id])) == 1:
+            assert abs(by_code["BS_CASH"].amount - Decimal("59562.75")) < Decimal("0.02")
+            assert abs(by_code["BS_EQUITY"].amount - Decimal("58735.77")) < Decimal("0.02")
+        assert abs(by_code["BS_CASH_XFER"].amount) > Decimal("1000")
+        assert bs.is_balanced is True
+        assert abs(bs.balance_difference or 0) < Decimal("0.02")
+    finally:
+        db.close()
+
+
+def test_zero_lines_can_be_shown():
+    db = SessionLocal()
+    try:
+        can, _usa = _entities(db)
+        as_of = date(2026, 7, 31)
+        hidden = build_report(
+            db,
+            ReportFilter(
+                report_type="balance_sheet",
+                year=2026,
+                month=7,
+                scenario_id=1,
+                reporting_currency="CAD",
+                entity_ids=[can.id],
+                as_of_date=as_of,
+                include_zero_lines=False,
+            ),
+        )
+        shown = build_report(
+            db,
+            ReportFilter(
+                report_type="balance_sheet",
+                year=2026,
+                month=7,
+                scenario_id=1,
+                reporting_currency="CAD",
+                entity_ids=[can.id],
+                as_of_date=as_of,
+                include_zero_lines=True,
+            ),
+        )
+        hidden_codes = {line.line_code for line in hidden.lines}
+        shown_codes = {line.line_code for line in shown.lines}
+        assert "BS_CASH" in hidden_codes
+        assert "BS_CASH_XFER" in shown_codes
+        assert len(shown.lines) >= len(hidden.lines)
+        zero_leaves = [
+            line.line_code
+            for line in shown.lines
+            if abs(line.amount) <= Decimal("0.005") and not line.is_total and line.drillable
+        ]
+        for code in zero_leaves:
+            assert code not in hidden_codes
+    finally:
+        db.close()
+
+
+def test_can_cash_drill_ties_to_book():
+    db = SessionLocal()
+    try:
+        can, _usa = _entities(db)
+        as_of = date(2026, 7, 31)
+        filters = ReportFilter(
+            report_type="balance_sheet",
+            year=2026,
+            month=7,
+            scenario_id=1,
+            reporting_currency="CAD",
+            entity_ids=[can.id],
+            as_of_date=as_of,
+            date_to=as_of,
+        )
+        bs = build_report(db, filters)
+        cash = next(line for line in bs.lines if line.line_code == "BS_CASH")
+        out = drill_report_line(
+            db,
+            DrillRequest(line_code="BS_CASH", account_ids=cash.account_ids, filters=filters),
+        )
+        assert out.is_tied is True
+        assert abs(out.detail_total - cash.amount) < Decimal("0.02")
+        assert any(row.account_code == "OPEN" for row in out.lines)
+    finally:
+        db.close()

@@ -276,6 +276,10 @@ def _seed_report_layouts(db: Session, by_code: dict[str, DimAccount]) -> None:
                 is_bold=bold,
                 is_total=total,
                 sort_order=order,
-                notes="wp:pnl_analysis" if code == "BS_CURRENT_EARNINGS" else None,
+                notes=(
+                    "wp:pnl_analysis"
+                    if code == "BS_CURRENT_EARNINGS"
+                    else ("wp:bank_transfers" if code == "BS_CASH_XFER" else None)
+                ),
             )
         )
