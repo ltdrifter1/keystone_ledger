@@ -1,11 +1,25 @@
 import { useEffect, useMemo, useState } from 'react'
-import { api, type Account, type BankAccount, type Entity, type FxRate, type Rule } from '../api'
+import { useSearchParams } from 'react-router-dom'
+import {
+  api,
+  type Account,
+  type BankAccount,
+  type Entity,
+  type FxRate,
+  type FxStatus,
+  type Rule,
+  type RulePreview,
+} from '../api'
 import { useToast } from '../hooks/useToast'
+import { useEngagement } from '../period/PeriodContext'
+
+type SettingsTab = 'rules' | 'fx'
 
 type RuleDraft = {
   name: string
   priority: string
   is_active: boolean
+  rule_kind: string
   match_description_contains: string
   match_entity_id: string
   match_bank_account_id: string
@@ -17,6 +31,7 @@ const emptyDraft = (): RuleDraft => ({
   name: '',
   priority: '50',
   is_active: true,
+  rule_kind: 'gl',
   match_description_contains: '',
   match_entity_id: '',
   match_bank_account_id: '',
@@ -29,6 +44,7 @@ function ruleToDraft(rule: Rule): RuleDraft {
     name: rule.name,
     priority: String(rule.priority),
     is_active: rule.is_active,
+    rule_kind: rule.rule_kind || 'gl',
     match_description_contains: rule.match_description_contains ?? '',
     match_entity_id: rule.match_entity_id != null ? String(rule.match_entity_id) : '',
     match_bank_account_id: rule.match_bank_account_id != null ? String(rule.match_bank_account_id) : '',
@@ -43,6 +59,7 @@ function draftPayload(draft: RuleDraft) {
     name: draft.name.trim(),
     priority: Number(draft.priority) || 100,
     is_active: draft.is_active,
+    rule_kind: draft.rule_kind || 'gl',
     match_description_contains: draft.match_description_contains.trim() || null,
     match_entity_id: draft.match_entity_id ? Number(draft.match_entity_id) : null,
     match_bank_account_id: draft.match_bank_account_id ? Number(draft.match_bank_account_id) : null,
@@ -53,12 +70,22 @@ function draftPayload(draft: RuleDraft) {
   }
 }
 
+function periodEndDate(year: number, month: number) {
+  const last = new Date(year, month, 0).getDate()
+  return `${year}-${String(month).padStart(2, '0')}-${String(last).padStart(2, '0')}`
+}
+
 export function SettingsPage() {
+  const [searchParams, setSearchParams] = useSearchParams()
+  const tab = (searchParams.get('tab') === 'fx' ? 'fx' : 'rules') as SettingsTab
+  const { year, month, entityId } = useEngagement()
+  const periodEnd = useMemo(() => periodEndDate(year, month), [year, month])
   const [rules, setRules] = useState<Rule[]>([])
   const [accounts, setAccounts] = useState<Account[]>([])
   const [entities, setEntities] = useState<Entity[]>([])
   const [banks, setBanks] = useState<BankAccount[]>([])
   const [fx, setFx] = useState<FxRate[]>([])
+  const [fxStatus, setFxStatus] = useState<FxStatus | null>(null)
   const [audit, setAudit] = useState<Array<Record<string, unknown>>>([])
   const [error, setError] = useState<string | null>(null)
   const [editingId, setEditingId] = useState<number | 'new' | null>(null)
@@ -66,10 +93,11 @@ export function SettingsPage() {
   const [fxDraft, setFxDraft] = useState({
     from_currency: 'USD',
     to_currency: 'CAD',
-    rate_date: '2026-07-31',
+    rate_date: periodEndDate(2026, 7),
     rate: '',
     rate_type: 'closing',
   })
+  const [preview, setPreview] = useState<RulePreview | null>(null)
   const { toast, show } = useToast()
 
   const reload = () =>
@@ -92,6 +120,18 @@ export function SettingsPage() {
   useEffect(() => {
     reload().catch((err: Error) => setError(err.message))
   }, [])
+
+  useEffect(() => {
+    setFxDraft((d) => ({ ...d, rate_date: periodEnd }))
+  }, [periodEnd])
+
+  useEffect(() => {
+    if (!entityId) return
+    api
+      .fxStatus({ entity_id: entityId, year, month })
+      .then(setFxStatus)
+      .catch((err: Error) => setError(err.message))
+  }, [entityId, year, month])
 
   const accountLabel = (id: number) => {
     const a = accounts.find((x) => x.id === id)
@@ -123,7 +163,34 @@ export function SettingsPage() {
       }
       setEditingId(null)
       setDraft(emptyDraft())
+      setPreview(null)
       await reload()
+    } catch (err) {
+      setError((err as Error).message)
+    }
+  }
+
+  const testOnHistory = async () => {
+    setError(null)
+    try {
+      const body =
+        typeof editingId === 'number'
+          ? { rule_id: editingId, uncategorized_only: true }
+          : {
+              match_description_contains: draft.match_description_contains.trim() || null,
+              match_entity_id: draft.match_entity_id ? Number(draft.match_entity_id) : null,
+              match_bank_account_id: draft.match_bank_account_id
+                ? Number(draft.match_bank_account_id)
+                : null,
+              uncategorized_only: true,
+            }
+      const result = await api.previewRule(body)
+      setPreview(result)
+      show(
+        result.matched_uncategorized
+          ? `Would match ${result.matched_uncategorized} uncategorized line(s)`
+          : 'No uncategorized matches',
+      )
     } catch (err) {
       setError((err as Error).message)
     }
@@ -170,28 +237,55 @@ export function SettingsPage() {
       setFxDraft((d) => ({ ...d, rate: '' }))
       show('FX rate saved')
       await reload()
+      if (entityId) {
+        const status = await api.fxStatus({ entity_id: entityId, year, month })
+        setFxStatus(status)
+      }
     } catch (err) {
       setError((err as Error).message)
     }
   }
 
   const highlighted = useMemo(() => {
-    const usdCad = fx.filter((r) => r.from_currency === 'USD' && r.to_currency === 'CAD')
+    const usdCad = fx.filter(
+      (r) => r.from_currency === 'USD' && r.to_currency === 'CAD' && r.rate_date <= periodEnd,
+    )
     const closing = usdCad.find((r) => r.rate_type === 'closing')
     const average = usdCad.find((r) => r.rate_type === 'average')
     return { closing, average }
-  }, [fx])
+  }, [fx, periodEnd])
 
   return (
     <div>
       <div className="page-header">
         <div>
           <h1>Settings</h1>
-          <p>Edit categorization rules and look up FX rates used on the statements.</p>
+          <p>
+            {tab === 'fx'
+              ? 'Closing rates for the balance sheet, cash, and intercompany. Average for P&L. Missing pairs are not 1:1.'
+              : 'Edit categorization rules. Transfer and Intercompany are kinds you can test on history.'}
+          </p>
+        </div>
+        <div className="toolbar settings-tabs">
+          <button
+            className={`btn ${tab === 'rules' ? 'primary' : 'ghost'}`}
+            type="button"
+            onClick={() => setSearchParams({ tab: 'rules' })}
+          >
+            Rules
+          </button>
+          <button
+            className={`btn ${tab === 'fx' ? 'primary' : 'ghost'}`}
+            type="button"
+            onClick={() => setSearchParams({ tab: 'fx' })}
+          >
+            FX rates
+          </button>
         </div>
       </div>
       {error && <div className="error">{error}</div>}
 
+      {tab === 'rules' && (
       <section className="panel">
         <div className="panel-header">
           <h2>Rules</h2>
@@ -200,6 +294,7 @@ export function SettingsPage() {
             type="button"
             onClick={() => {
               setEditingId('new')
+              setPreview(null)
               setDraft({
                 ...emptyDraft(),
                 assign_account_id: accounts[0] ? String(accounts[0].id) : '',
@@ -219,6 +314,29 @@ export function SettingsPage() {
                   value={draft.name}
                   onChange={(e) => setDraft({ ...draft, name: e.target.value })}
                 />
+              </label>
+              <label>
+                Kind
+                <select
+                  className="select"
+                  value={draft.rule_kind}
+                  onChange={(e) => {
+                    const kind = e.target.value
+                    const next = { ...draft, rule_kind: kind }
+                    if (kind === 'bank_transfer') {
+                      const cash = accounts.find((a) => a.code === '1000')
+                      if (cash) next.assign_account_id = String(cash.id)
+                    } else if (kind === 'intercompany') {
+                      const ic = accounts.find((a) => a.code === '2100')
+                      if (ic) next.assign_account_id = String(ic.id)
+                    }
+                    setDraft(next)
+                  }}
+                >
+                  <option value="gl">GL</option>
+                  <option value="bank_transfer">Transfer (same entity)</option>
+                  <option value="intercompany">Intercompany (CAN↔USA)</option>
+                </select>
               </label>
               <label>
                 Priority
@@ -315,14 +433,25 @@ export function SettingsPage() {
                 onClick={() => {
                   setEditingId(null)
                   setDraft(emptyDraft())
+                  setPreview(null)
                 }}
               >
                 Cancel
+              </button>
+              <button className="btn" type="button" onClick={() => void testOnHistory()}>
+                Test on history
               </button>
               <button className="btn primary" type="button" onClick={() => void saveRule()}>
                 Save rule
               </button>
             </div>
+            {preview && (
+              <p className="hint" style={{ paddingBottom: '0.75rem' }}>
+                {preview.matched_uncategorized} uncategorized match
+                {preview.matched_uncategorized === 1 ? '' : 'es'}
+                {preview.sample[0] ? ` · e.g. ${preview.sample[0].description}` : ''}
+              </p>
+            )}
           </div>
         )}
         <div className="table-wrap" style={{ maxHeight: 420 }}>
@@ -330,6 +459,7 @@ export function SettingsPage() {
             <thead>
               <tr>
                 <th>On</th>
+                <th>Kind</th>
                 <th>Priority</th>
                 <th>Name</th>
                 <th>Match</th>
@@ -345,6 +475,7 @@ export function SettingsPage() {
                   <td>
                     <input type="checkbox" checked={r.is_active} onChange={() => void toggleActive(r)} />
                   </td>
+                  <td>{r.rule_kind === 'bank_transfer' ? 'Transfer' : r.rule_kind === 'intercompany' ? 'IC' : 'GL'}</td>
                   <td>{r.priority}</td>
                   <td>{r.name}</td>
                   <td>{r.match_description_contains ?? '—'}</td>
@@ -366,6 +497,7 @@ export function SettingsPage() {
                         onClick={() => {
                           setEditingId(r.id)
                           setDraft(ruleToDraft(r))
+                          setPreview(null)
                         }}
                       >
                         Edit
@@ -381,12 +513,15 @@ export function SettingsPage() {
           </table>
         </div>
       </section>
+      )}
 
+      {tab === 'fx' && (
       <section className="panel" style={{ marginTop: '0.85rem' }}>
         <div className="panel-header">
           <h2>FX rates</h2>
           <span className="hint">
-            USD→CAD closing {highlighted.closing ? Number(highlighted.closing.rate).toFixed(4) : '—'}
+            As of {periodEnd} · USD→CAD closing{' '}
+            {highlighted.closing ? Number(highlighted.closing.rate).toFixed(4) : '—'}
             {highlighted.closing ? ` · ${highlighted.closing.rate_date}` : ''}
             {' · '}
             average {highlighted.average ? Number(highlighted.average.rate).toFixed(4) : '—'}
@@ -396,6 +531,16 @@ export function SettingsPage() {
           P&amp;L uses average; the balance sheet, cash, and intercompany use closing. Missing pairs stay
           missing — nothing is assumed at 1.
         </p>
+        {fxStatus && fxStatus.missing_pairs.length > 0 && (
+          <div className="inbox-fx-missing">
+            <strong>Missing FX — print is blocked</strong>
+            <span className="hint">
+              {fxStatus.missing_pairs.join(', ')}
+              {fxStatus.inbox_missing_count ? ` · ${fxStatus.inbox_missing_count} inbox line(s)` : ''}.
+              Amounts are not translated 1:1.
+            </span>
+          </div>
+        )}
         <div className="rule-form">
           <div className="rule-form-grid fx-form-grid">
             <label>
@@ -484,7 +629,9 @@ export function SettingsPage() {
           </table>
         </div>
       </section>
+      )}
 
+      {tab === 'rules' && (
       <div className="grid-2" style={{ marginTop: '0.85rem' }}>
         <section className="panel">
           <div className="panel-header">
@@ -546,6 +693,7 @@ export function SettingsPage() {
           </div>
         </section>
       </div>
+      )}
       {toast && <div className="toast">{toast}</div>}
     </div>
   )

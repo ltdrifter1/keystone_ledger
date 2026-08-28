@@ -119,6 +119,7 @@ class RuleOut(ORMModel):
     name: str
     priority: int
     is_active: bool
+    rule_kind: str = "gl"
     match_description_contains: Optional[str] = None
     match_description_regex: Optional[str] = None
     match_counterparty: Optional[str] = None
@@ -137,6 +138,7 @@ class RuleCreate(BaseModel):
     name: str
     priority: int = 100
     is_active: bool = True
+    rule_kind: str = "gl"
     match_description_contains: Optional[str] = None
     match_description_regex: Optional[str] = None
     match_counterparty: Optional[str] = None
@@ -154,6 +156,7 @@ class RuleUpdate(BaseModel):
     name: Optional[str] = None
     priority: Optional[int] = None
     is_active: Optional[bool] = None
+    rule_kind: Optional[str] = None
     match_description_contains: Optional[str] = None
     match_description_regex: Optional[str] = None
     match_counterparty: Optional[str] = None
@@ -165,6 +168,37 @@ class RuleUpdate(BaseModel):
     assign_account_id: Optional[int] = None
     assign_department_id: Optional[int] = None
     assign_counter_entity_id: Optional[int] = None
+
+
+class RulePreviewRequest(BaseModel):
+    rule_id: Optional[int] = None
+    match_description_contains: Optional[str] = None
+    match_description_regex: Optional[str] = None
+    match_counterparty: Optional[str] = None
+    match_amount_min: Optional[Decimal] = None
+    match_amount_max: Optional[Decimal] = None
+    match_currency: Optional[str] = None
+    match_entity_id: Optional[int] = None
+    match_bank_account_id: Optional[int] = None
+    uncategorized_only: bool = True
+    limit: int = 20
+
+
+class RulePreviewHit(BaseModel):
+    id: int
+    txn_date: date
+    description: str
+    amount: Decimal
+    currency: str
+    entity_id: int
+    bank_account_id: Optional[int] = None
+    status: str
+
+
+class RulePreviewOut(BaseModel):
+    matched_uncategorized: int
+    matched_total: int
+    sample: list[RulePreviewHit] = Field(default_factory=list)
 
 
 class AuditLogOut(ORMModel):

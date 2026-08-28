@@ -75,7 +75,9 @@ def _accounts_map(db: Session) -> dict[int, DimAccount]:
     return {a.id: a for a in db.scalars(select(DimAccount)).all()}
 
 
-def find_intercompany_candidates(db: Session, lookback_days: int = 7) -> list[IntercompanyMatchOut]:
+def find_intercompany_candidates(
+    db: Session, lookback_days: int = 7, focus_txn_id: int | None = None
+) -> list[IntercompanyMatchOut]:
     """Match opposite IC legs across entities in the same month (monthly rec)."""
     _ = lookback_days  # kept for API compatibility; matching is month-scoped
     accounts = _accounts_map(db)
@@ -90,10 +92,26 @@ def find_intercompany_candidates(db: Session, lookback_days: int = 7) -> list[In
         ).unique()
     )
     candidates = [t for t in txns if _is_ic_txn(t, accounts) and _leg_amount(t, accounts) != 0]
+    if focus_txn_id is not None:
+        focus = [t for t in candidates if t.id == focus_txn_id]
+        if not focus:
+            return []
+        others = [t for t in candidates if t.id != focus_txn_id]
+        return _pair_ic_legs(db, accounts, focus, others)
+    return _pair_ic_legs(db, accounts, candidates, None)
+
+
+def _pair_ic_legs(
+    db: Session,
+    accounts: dict[int, DimAccount],
+    lefts: list[Transaction],
+    rights: list[Transaction] | None,
+) -> list[IntercompanyMatchOut]:
+    pool = rights if rights is not None else lefts
     matches: list[IntercompanyMatchOut] = []
     used: set[int] = set()
 
-    for left in candidates:
+    for left in lefts:
         if left.id in used:
             continue
         left_amt = _leg_amount(left, accounts)
@@ -101,7 +119,7 @@ def find_intercompany_candidates(db: Session, lookback_days: int = 7) -> list[In
             db, amount=left_amt, from_currency=left.currency, to_currency="CAD", as_of=left.txn_date, rate_type="closing"
         )
         start, end = _month_window(left.txn_date)
-        for right in candidates:
+        for right in pool:
             if right.id in used or right.id == left.id:
                 continue
             if left.entity_id == right.entity_id:
@@ -195,8 +213,8 @@ def apply_intercompany_match(
     return left, right
 
 
-def auto_match_intercompany(db: Session, actor: str = "system") -> int:
-    matches = find_intercompany_candidates(db)
+def auto_match_intercompany(db: Session, actor: str = "system", txn_id: int | None = None) -> int:
+    matches = find_intercompany_candidates(db, focus_txn_id=txn_id)
     count = 0
     for m in matches:
         if m.confidence in ("high", "medium"):

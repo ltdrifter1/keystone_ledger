@@ -87,6 +87,21 @@ def create_bank_account(
     return bank
 
 
+@router.get("/fx-rates/status")
+def fx_status(
+    entity_id: int,
+    year: int,
+    month: int,
+    db: Session = Depends(get_db),
+) -> dict:
+    from app.engines.fx import inbox_fx_status
+
+    try:
+        return inbox_fx_status(db, entity_id=entity_id, year=year, month=month)
+    except ValueError as exc:
+        raise HTTPException(404, str(exc)) from exc
+
+
 @router.get("/fx-rates", response_model=list[FxRateOut])
 def list_fx(db: Session = Depends(get_db)) -> list[FxRateOut]:
     return list(db.scalars(select(DimFx).order_by(DimFx.rate_date.desc()).limit(200)))

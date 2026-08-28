@@ -159,6 +159,9 @@ class CategorizationRule(Base):
     match_entity_id: Mapped[Optional[int]] = mapped_column(ForeignKey("dim_entity.id"), nullable=True)
     match_bank_account_id: Mapped[Optional[int]] = mapped_column(ForeignKey("bank_accounts.id"), nullable=True)
 
+    # gl | bank_transfer | intercompany
+    rule_kind: Mapped[str] = mapped_column(String(32), default="gl", index=True)
+
     # Action
     assign_account_id: Mapped[int] = mapped_column(ForeignKey("dim_account.id"))
     assign_department_id: Mapped[Optional[int]] = mapped_column(ForeignKey("dim_department.id"), nullable=True)

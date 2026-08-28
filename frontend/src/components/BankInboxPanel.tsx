@@ -7,7 +7,7 @@ import {
   type BankAccount,
   type BankFeed,
   type Entity,
-  type FxRate,
+  type FxStatus,
   type Transaction,
 } from '../api'
 import { AccountPicker } from './AccountPicker'
@@ -31,22 +31,12 @@ function periodBounds(year: number, month: number) {
   }
 }
 
-function latestRate(rows: FxRate[], from: string, to: string, rateType: string, asOf?: string) {
-  return rows.find(
-    (r) =>
-      r.from_currency === from &&
-      r.to_currency === to &&
-      r.rate_type === rateType &&
-      (!asOf || r.rate_date <= asOf),
-  )
-}
-
 export function BankInboxPanel({ year, month, entityId, entityCode, onChanged, onMessage }: Props) {
   const [accounts, setAccounts] = useState<Account[]>([])
   const [entities, setEntities] = useState<Entity[]>([])
   const [banks, setBanks] = useState<BankAccount[]>([])
   const [feeds, setFeeds] = useState<BankFeed[]>([])
-  const [fx, setFx] = useState<FxRate[]>([])
+  const [fxStatus, setFxStatus] = useState<FxStatus | null>(null)
   const [rows, setRows] = useState<Transaction[]>([])
   const [rememberRule, setRememberRule] = useState(true)
   const [icEntity, setIcEntity] = useState<Record<number, string>>({})
@@ -70,16 +60,23 @@ export function BankInboxPanel({ year, month, entityId, entityCode, onChanged, o
   }, [entityId, bounds.date_from, bounds.date_to])
 
   useEffect(() => {
-    Promise.all([api.accounts(), api.entities(), api.bankAccounts(), api.bankFeeds(), api.fxRates()])
-      .then(([a, e, b, f, rates]) => {
+    Promise.all([api.accounts(), api.entities(), api.bankAccounts(), api.bankFeeds()])
+      .then(([a, e, b, f]) => {
         setAccounts(a)
         setEntities(e)
         setBanks(b)
         setFeeds(f)
-        setFx(rates)
       })
       .catch((err: Error) => setError(err.message))
   }, [])
+
+  useEffect(() => {
+    if (!entityId) return
+    api
+      .fxStatus({ entity_id: entityId, year, month })
+      .then(setFxStatus)
+      .catch((err: Error) => setError(err.message))
+  }, [entityId, year, month])
 
   useEffect(() => {
     loadInbox().catch((err: Error) => setError(err.message))
@@ -100,8 +97,9 @@ export function BankInboxPanel({ year, month, entityId, entityCode, onChanged, o
   const pendingFeeds = entityFeeds.filter((f) => f.status === 'connected' && f.pending_count > 0)
   const pendingTotal = pendingFeeds.reduce((n, f) => n + f.pending_count, 0)
 
-  const usdCadClose = latestRate(fx, 'USD', 'CAD', 'closing', bounds.date_to)
-  const usdCadAvg = latestRate(fx, 'USD', 'CAD', 'average', bounds.date_to)
+  const closingPair = fxStatus?.pairs.find((p) => p.rate_type === 'closing' && !p.missing)
+  const averagePair = fxStatus?.pairs.find((p) => p.rate_type === 'average' && !p.missing)
+  const missingPairs = fxStatus?.missing_pairs ?? []
 
   const afterChange = async (msg: string) => {
     await loadInbox()
@@ -179,6 +177,9 @@ export function BankInboxPanel({ year, month, entityId, entityCode, onChanged, o
       await loadInbox()
       onChanged?.()
       onMessage?.(imported ? `Synced ${imported} new item(s)` : 'Feeds already caught up')
+      if (entityId) {
+        api.fxStatus({ entity_id: entityId, year, month }).then(setFxStatus).catch(() => undefined)
+      }
     } catch (err) {
       setError((err as Error).message)
     } finally {
@@ -193,7 +194,11 @@ export function BankInboxPanel({ year, month, entityId, entityCode, onChanged, o
       const res = await api.applyRules()
       await loadInbox()
       onChanged?.()
-      onMessage?.(`Rules categorized ${res.categorized}`)
+      onMessage?.(
+        res.ic_matched
+          ? `Rules categorized ${res.categorized} · IC matched ${res.ic_matched}`
+          : `Rules categorized ${res.categorized}`,
+      )
     } catch (err) {
       setError((err as Error).message)
     } finally {
@@ -216,14 +221,37 @@ export function BankInboxPanel({ year, month, entityId, entityCode, onChanged, o
 
       <div className="fx-strip">
         <span>
-          USD→CAD closing {usdCadClose ? Number(usdCadClose.rate).toFixed(4) : '—'}
-          {usdCadClose ? ` · ${usdCadClose.rate_date}` : ''}
+          Closing (BS / cash / IC){' '}
+          {closingPair
+            ? `${closingPair.from_currency}→${closingPair.to_currency} ${Number(closingPair.rate).toFixed(4)} · ${closingPair.rate_date}`
+            : '—'}
         </span>
-        <span>average {usdCadAvg ? Number(usdCadAvg.rate).toFixed(4) : '—'}</span>
-        <Link className="btn ghost" to="/settings">
-          Rules & FX
+        <span>
+          Average (P&L){' '}
+          {averagePair
+            ? `${averagePair.from_currency}→${averagePair.to_currency} ${Number(averagePair.rate).toFixed(4)}`
+            : '—'}
+        </span>
+        <Link className="btn ghost" to="/settings?tab=fx">
+          FX rates
+        </Link>
+        <Link className="btn ghost" to="/settings?tab=rules">
+          Rules
         </Link>
       </div>
+
+      {missingPairs.length > 0 && (
+        <div className="inbox-fx-missing">
+          <strong>Missing FX — print is blocked</strong>
+          <span className="hint">
+            {missingPairs.join(', ')}
+            {fxStatus?.inbox_missing_count
+              ? ` · ${fxStatus.inbox_missing_count} inbox line(s)`
+              : ''}
+            . Amounts are not translated 1:1.
+          </span>
+        </div>
+      )}
 
       <div className="filters" style={{ padding: '0 1rem 0.75rem' }}>
         <label className="btn ghost">
@@ -232,7 +260,7 @@ export function BankInboxPanel({ year, month, entityId, entityCode, onChanged, o
             checked={rememberRule}
             onChange={(e) => setRememberRule(e.target.checked)}
           />
-          Remember as a rule
+          Remember as a rule (all banks of this entity)
         </label>
         <button className="btn" type="button" disabled={syncing} onClick={() => void applyRules()}>
           <RefreshCw size={14} /> Apply rules
@@ -297,6 +325,7 @@ export function BankInboxPanel({ year, month, entityId, entityCode, onChanged, o
                     <td>
                       <div>{txn.description}</div>
                       {txn.counterparty ? <div className="hint">{txn.counterparty}</div> : null}
+                      {txn.fx_missing ? <div className="warn-text">FX missing · {txn.currency}</div> : null}
                     </td>
                     <td className="num">{money(txn.amount, txn.currency)}</td>
                     <td>
@@ -307,7 +336,7 @@ export function BankInboxPanel({ year, month, entityId, entityCode, onChanged, o
                           placeholder="GL account…"
                           onSelect={(accountId) => void categorize(txn, accountId)}
                         />
-                        {otherBanks.length > 1 && (
+                        {otherBanks.length > 0 && (
                           <select
                             className="select"
                             disabled={locked}
@@ -330,7 +359,7 @@ export function BankInboxPanel({ year, month, entityId, entityCode, onChanged, o
                         >
                           <ArrowLeftRight size={14} /> Transfer
                         </button>
-                        {otherEntities.length > 1 && (
+                        {otherEntities.length > 0 && (
                           <select
                             className="select"
                             disabled={locked}

@@ -10,6 +10,7 @@ from app.auth import get_actor
 from app.database import get_db
 from app.engines.audit import write_audit
 from app.engines.categorization import categorize_transaction, split_transaction
+from app.engines.fx import lookup_rate
 from app.engines.inbox import mark_bank_transfer, mark_intercompany
 from app.engines.intercompany import auto_match_intercompany, find_intercompany_candidates
 from app.engines.period_locks import PeriodLockedError, assert_bank_period_open, assert_txn_editable, locked_recon_for_txn
@@ -55,6 +56,20 @@ def _to_out(db: Session, txn: Transaction) -> TransactionOut:
     locked = locked_recon_for_txn(db, txn)
     data.is_period_locked = locked is not None
     data.is_editable = locked is None and not txn.is_reconciled
+    functional = txn.entity.functional_currency if txn.entity else None
+    if functional and txn.currency and txn.currency != functional:
+        data.fx_missing = (
+            lookup_rate(
+                db,
+                from_currency=txn.currency,
+                to_currency=functional,
+                as_of=txn.txn_date,
+                rate_type="closing",
+            )
+            is None
+        )
+    else:
+        data.fx_missing = False
     return data
 
 
@@ -325,8 +340,13 @@ def apply_rules(db: Session = Depends(get_db), actor: str = Depends(get_actor)) 
         except PeriodLockedError:
             skipped_locked += 1
     count = apply_rules_batch(db, editable, actor=actor)
+    matched = 0
+    if count:
+        from app.engines.intercompany import auto_match_intercompany
+
+        matched = auto_match_intercompany(db, actor=actor)
     db.commit()
-    return {"categorized": count, "skipped_locked": skipped_locked}
+    return {"categorized": count, "skipped_locked": skipped_locked, "ic_matched": matched}
 
 
 @router.get("/intercompany/candidates", response_model=list[IntercompanyMatchOut])
