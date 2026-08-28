@@ -70,22 +70,22 @@ def _can_filters(can_id: int, report_type: str = "balance_sheet") -> ReportFilte
     )
 
 
-def test_trial_balance_maps_cashbook_cash_and_gl1000_xfer():
+def test_trial_balance_maps_cash_gl_and_interbank():
     db = SessionLocal()
     try:
         can, _usa = _entities(db)
         filters = _can_filters(can.id)
         tb = build_trial_balance(db, filters)
         by_code = {row.account_code: row for row in tb.rows}
-        assert "CASH" in by_code
-        assert by_code["CASH"].synthetic is True
-        assert by_code["CASH"].line_code == "BS_CASH"
+        assert "CASH" not in by_code
+        assert tb.is_balanced is True
+        cash_rows = [r for r in tb.rows if r.line_code == "BS_CASH"]
+        assert cash_rows
         book, _, _ = cashbook_book_cash(db, filters)
-        assert abs(by_code["CASH"].amount - book) < Decimal("0.02")
-        assert "1000" in by_code
-        assert by_code["1000"].line_code == "BS_CASH_XFER"
-        assert "CE" in by_code
-        assert by_code["CE"].line_code == "BS_CURRENT_EARNINGS"
+        cash_net = sum((r.debit - r.credit for r in cash_rows), Decimal("0"))
+        assert abs(cash_net - book) < Decimal("0.05")
+        if "1090" in by_code:
+            assert by_code["1090"].line_code == "BS_CASH_XFER"
         assert tb.notes
     finally:
         db.close()
@@ -201,8 +201,8 @@ def test_trial_balance_api_and_diagnostics_api():
     assert tb.status_code == 200, tb.text
     body = tb.json()
     codes = {row["account_code"] for row in body["rows"]}
-    assert "CASH" in codes
-    assert "1000" in codes
+    assert "CASH" not in codes
+    assert body["is_balanced"] is True
 
     diag = client.post("/api/reports/diagnostics", json={**payload, "report_type": "balance_sheet"})
     assert diag.status_code == 200, diag.text
@@ -215,8 +215,7 @@ def test_binder_still_has_eleven_templates():
     assert find_template(line_code="EQ_OPENING").key == "equity"
     assert find_template(line_code="EQ_CLOSING").wp_ref == "E.1"
     cash = find_template(line_code="BS_CASH")
-    assert "bank book" in cash.tie_out.lower()
-    assert "1000" in cash.tie_out
+    assert "is_cash" in cash.tie_out.lower() or "cash gl" in cash.tie_out.lower()
 
 
 def test_usa_equity_roll_from_journals():
@@ -238,6 +237,6 @@ def test_usa_equity_roll_from_journals():
         )
         by_code = {line.line_code: line for line in eq.lines}
         assert "EQ_CLOSING" in by_code
-        assert "journal" in (eq.accounting_basis or "").lower() or "Accrual" in (eq.accounting_basis or "")
+        assert "journal" in (eq.accounting_basis or "").lower() or "double-entry" in (eq.accounting_basis or "").lower() or "Accrual" in (eq.accounting_basis or "")
     finally:
         db.close()

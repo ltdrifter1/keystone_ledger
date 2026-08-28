@@ -19,6 +19,7 @@ class EntityOut(ORMModel):
     functional_currency: str
     parent_entity_id: Optional[int] = None
     is_active: bool
+    fiscal_year_end_month: int = 7
 
 
 class EntityCreate(BaseModel):
@@ -27,6 +28,7 @@ class EntityCreate(BaseModel):
     country: str
     functional_currency: str = "CAD"
     parent_entity_id: Optional[int] = None
+    fiscal_year_end_month: int = 7
 
 
 class AccountOut(ORMModel):

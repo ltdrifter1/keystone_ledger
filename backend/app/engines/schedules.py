@@ -166,10 +166,10 @@ def _fact_rows(
                 "signed_amount": float(signed),
                 "amount": signed,
                 "currency": reporting_currency,
-                "source_type": txn.source_type,
-                "intercompany_match_id": txn.intercompany_match_id,
-                "counter_entity_id": txn.counter_entity_id,
-                "is_matched": txn.intercompany_match_id is not None,
+                "source_type": getattr(txn, "source_type", None),
+                "intercompany_match_id": getattr(txn, "intercompany_match_id", None),
+                "counter_entity_id": getattr(txn, "counter_entity_id", None),
+                "is_matched": getattr(txn, "intercompany_match_id", None) is not None,
             }
         )
     return rows

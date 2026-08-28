@@ -42,26 +42,25 @@ TEMPLATES: list[WorkingPaperTemplate] = [
         title="Cash",
         statement="balance_sheet",
         section="asset",
-        purpose="Prove statement cash to the bank book (cashbook) or document N/A when cash is nil (journal-led).",
-        objective="Agree BS cash to the reconciled bank book. GL 1000 is due to/from other bank accounts, not cash.",
-        tie_out="Cashbook: bank book (openings + bank txns) = BS cash. GL 1000 = due to/from other banks. Journal-led with nil cash: C.1 is N/A.",
+        purpose="Prove statement cash to the cash GL (is_cash accounts: bank children + USA 1000).",
+        objective="Agree BS cash to the sum of cash GL accounts. Interbank sweeps sit on 1090, not in cash.",
+        tie_out="Cash GL (is_cash accounts, including openings) = BS cash. 1090 = due to/from other banks.",
         procedures=[
-            "Identify whether the entity is cashbook (bank book) or journal-led (cash often N/A).",
-            "Cashbook: agree BS cash to the bank book (openings + bank transactions), not GL 1000.",
-            "Treat GL 1000 as due to/from other bank accounts (BS_CASH_XFER), not the cash line.",
-            "Journal-led: if cash is nil, document C.1 as N/A; do not force a cash recon.",
+            "Agree BS cash to the cash GL roll-up (bank GL accounts flagged is_cash).",
+            "Treat 1090 as due to/from other bank accounts (BS_CASH_XFER), not the cash line.",
+            "Uncategorized bank lines hit 9999 suspense and remain visible on the trial balance.",
             "Complete / review bank reconciliation where a bank exists: beginning + cleared = book.",
-            "Confirm FX translation of foreign-currency bank books at the closing rate.",
-            "Agree total cash to the Balance Sheet cash line (and Close Pack lock where required).",
+            "Confirm FX translation of foreign-currency cash at the closing rate.",
+            "Agree total cash to the Balance Sheet cash line.",
         ],
         evidence=[
             "Bank statements / CSV imports / live feeds",
             "Bank reconciliations (Close Pack / Reconciliation workspace)",
-            "Bank book drill (openings + bank transactions)",
+            "Cash GL drill (openings + cash legs of bank activity)",
             "FX closing rates",
         ],
-        line_codes=["BS_CASH", "BS_CASH_XFER", "1000"],
-        account_codes=["1000"],
+        line_codes=["BS_CASH", "BS_CASH_XFER", "1090", "1010"],
+        account_codes=["1010", "1015", "1030", "1050", "1000", "1090"],
         sort_order=10,
     ),
     WorkingPaperTemplate(
@@ -400,6 +399,7 @@ def template_for_report_line(
 
 _REQUIRED_ACCOUNTS = [
     ("1000", "Cash & Banks", "asset", "balance_sheet", "debit", True, False, 10),
+    ("1090", "Due to / from other bank accounts", "asset", "balance_sheet", "debit", False, False, 15),
     ("1100", "Accounts Receivable", "asset", "balance_sheet", "debit", False, False, 20),
     ("1200", "Inventory", "asset", "balance_sheet", "debit", False, False, 25),
     ("1300", "Prepaid Expenses", "asset", "balance_sheet", "debit", False, False, 28),
@@ -411,6 +411,7 @@ _REQUIRED_ACCOUNTS = [
     ("2400", "Shareholder Loan", "liability", "balance_sheet", "credit", False, False, 65),
     ("3000", "Retained Earnings", "equity", "balance_sheet", "credit", False, False, 70),
     ("3100", "Owner Contributions / Draws", "equity", "balance_sheet", "credit", False, False, 80),
+    ("9999", "Uncategorized (suspense)", "asset", "balance_sheet", "debit", False, False, 95),
 ]
 
 
@@ -425,7 +426,20 @@ def balance_sheet_layout_spec(by_code: dict[str, DimAccount]) -> list[tuple]:
 
     return [
         ("BS_ASSETS", "Assets", "asset", None, None, None, 0, True, False, 10),
-        ("BS_CASH", "Cash", "asset", acct("1000"), None, None, 1, False, False, 20),
+        ("BS_CASH", "Cash", "asset", None, None, None, 1, False, False, 20),
+        (
+            "BS_CASH_XFER",
+            "Due to / from other bank accounts",
+            "asset",
+            acct("1090"),
+            None,
+            None,
+            1,
+            False,
+            False,
+            25,
+        ),
+        ("BS_SUSPENSE", "Uncategorized (suspense)", "asset", acct("9999"), None, None, 1, False, False, 28),
         ("BS_AR", "Accounts Receivable", "asset", acct("1100"), None, None, 1, False, False, 30),
         ("BS_INV", "Inventory", "asset", acct("1200"), None, None, 1, False, False, 40),
         ("BS_PREPAID", "Prepaid Expenses", "asset", acct("1300"), None, None, 1, False, False, 50),
@@ -436,7 +450,7 @@ def balance_sheet_layout_spec(by_code: dict[str, DimAccount]) -> list[tuple]:
             "asset",
             None,
             None,
-            "BS_CASH + BS_AR + BS_INV + BS_PREPAID + BS_FA",
+            "BS_CASH + BS_CASH_XFER + BS_SUSPENSE + BS_AR + BS_INV + BS_PREPAID + BS_FA",
             0,
             True,
             True,
@@ -449,24 +463,12 @@ def balance_sheet_layout_spec(by_code: dict[str, DimAccount]) -> list[tuple]:
         ("BS_TAX", "Taxes Payable", "liability", acct("2300"), None, None, 1, False, False, 120),
         ("BS_SH_LOAN", "Shareholder Loan", "liability", acct("2400"), None, None, 1, False, False, 130),
         (
-            "BS_CASH_XFER",
-            "Due to / from other bank accounts",
-            "liability",
-            acct("1000"),
-            None,
-            None,
-            1,
-            False,
-            False,
-            135,
-        ),
-        (
             "BS_TOT_LIAB",
             "Total Liabilities",
             "liability",
             None,
             None,
-            "BS_AP + BS_IC + BS_UNEARNED + BS_TAX + BS_SH_LOAN + BS_CASH_XFER",
+            "BS_AP + BS_IC + BS_UNEARNED + BS_TAX + BS_SH_LOAN",
             0,
             True,
             True,
@@ -516,9 +518,13 @@ def balance_sheet_layout_spec(by_code: dict[str, DimAccount]) -> list[tuple]:
 
 def ensure_working_paper_foundation(db: Session) -> dict[str, int]:
     """Idempotently ensure CoA accounts and BS layout lines exist for WP sections."""
+    from app.engines.ledger import ensure_ledger_accounts
+
     created_accounts = 0
     created_layouts = 0
     updated_layouts = 0
+
+    ensure_ledger_accounts(db)
 
     existing = {a.code: a for a in db.scalars(select(DimAccount)).all()}
     for code, name, acct_type, statement, normal, is_cash, is_ic, sort_order in _REQUIRED_ACCOUNTS:

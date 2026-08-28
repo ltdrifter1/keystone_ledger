@@ -2,30 +2,24 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.engines.entity_close import is_journal_led_entity
+from app.engines.ledger import SUSPENSE_CODE, aggregate_ledger
 from app.engines.reporting import (
     CASH_LINE_CODE,
-    CASH_XFER_CODE,
     CURRENT_EARNINGS_CODE,
     EQUITY_CODE,
     NIL_TOLERANCE,
     _as_of_date,
-    _pnl_net_income,
-    _signed_amount,
-    _ytd_filters,
-    aggregate_account_bundle,
     build_report,
-    cashbook_book_cash,
     fiscal_year_start,
     period_label,
     prior_year_filters,
-    use_cashbook_presentation,
 )
 from app.models import DimAccount, DimEntity, DimReportLayout, Transaction
 from app.schemas.reports import (
@@ -67,6 +61,18 @@ def _entity(db: Session, entity_id: int) -> DimEntity:
     return row
 
 
+def scoped_statement_filters(db: Session, filters: ReportFilter) -> ReportFilter:
+    entity_id = assert_statement_scope(db, filters)
+    entity = _entity(db, entity_id)
+    return filters.model_copy(
+        update={
+            "entity_ids": [entity_id],
+            "consolidate": False,
+            "reporting_currency": entity.functional_currency or filters.reporting_currency,
+        }
+    )
+
+
 def budget_is_illustrative(db: Session) -> bool:
     row = db.scalar(
         select(Transaction.id).where(Transaction.source_type == "budget_seed").limit(1)
@@ -77,28 +83,24 @@ def budget_is_illustrative(db: Session) -> bool:
 def build_reporting_notes(db: Session, filters: ReportFilter) -> tuple[str, list[ReportingNote], str]:
     entity_id = assert_statement_scope(db, filters)
     entity = _entity(db, entity_id)
-    cashbook = is_journal_led_entity(db, entity_id) is False
     year = filters.year or (_as_of_date(filters).year)
     as_of = _as_of_date(filters)
-    if cashbook:
-        basis = (
-            f"{entity.name} is prepared from the bank cashbook. "
-            "Cash is the reconciled bank book, not GL 1000. "
-            "Current earnings are not closed to retained earnings."
-        )
-        basis_heading = "Cashbook basis"
-    else:
-        basis = (
-            f"{entity.name} is prepared from month-end adjusting journals. "
-            "Cash recon is N/A when cash is nil. "
-            "Current earnings close the balance sheet without a year-end close journal."
-        )
-        basis_heading = "Accrual / journal basis"
+    fy_start = fiscal_year_start(year, filters.month or as_of.month)
+    basis = (
+        f"{entity.name} is a double-entry ledger. Bank activity posts to the cash GL and the "
+        "other side (uncategorized items to 9999 suspense). Current earnings are not closed "
+        "to retained earnings."
+    )
+    basis_heading = "Double-entry ledger"
     notes = [
         ReportingNote(heading=basis_heading, body=basis),
         ReportingNote(
             heading="Fiscal year",
-            body=f"Year-end is 31 July. Fiscal YTD for this pack runs from {fiscal_year_start(year, filters.month or as_of.month).isoformat()} through {as_of.isoformat()}.",
+            body=(
+                f"Year-end is 31 July (FYE month {int(getattr(entity, 'fiscal_year_end_month', None) or 7)}). "
+                f"Fiscal YTD for this pack runs from {fy_start.isoformat()} through {as_of.isoformat()}. "
+                "Quarters are fiscal (Q1 starts 1 August)."
+            ),
         ),
         ReportingNote(
             heading="Foreign exchange",
@@ -120,7 +122,7 @@ def build_reporting_notes(db: Session, filters: ReportFilter) -> tuple[str, list
             body=PACK_DISCLAIMER,
         ),
     ]
-    return basis_heading + " — " + ("cashbook" if cashbook else "journals"), notes, PACK_DISCLAIMER
+    return basis_heading, notes, PACK_DISCLAIMER
 
 
 def _layout_account_map(db: Session) -> dict[int, tuple[str, str]]:
@@ -142,6 +144,8 @@ def _layout_account_map(db: Session) -> dict[int, tuple[str, str]]:
     for acct in accounts.values():
         if acct.id in by_id:
             mapped[acct.id] = by_id[acct.id]
+        elif acct.is_cash:
+            mapped[acct.id] = (CASH_LINE_CODE, "Cash")
         elif acct.account_type in by_type:
             mapped[acct.id] = by_type[acct.account_type]
     return mapped
@@ -203,7 +207,7 @@ def attach_pack_notes(db: Session, filters: ReportFilter, report: ReportOut) -> 
 
 
 def build_official_report(db: Session, filters: ReportFilter) -> ReportOut:
-    assert_statement_scope(db, filters)
+    filters = scoped_statement_filters(db, filters)
     if filters.report_type == "cash_flow":
         raise ValueError("Cash flow is not part of this pack. Print P&L, the balance sheet, and the equity roll.")
     if filters.report_type == "trial_balance":
@@ -323,44 +327,58 @@ def build_equity_roll(db: Session, filters: ReportFilter) -> ReportOut:
 
 
 def build_trial_balance(db: Session, filters: ReportFilter) -> TrialBalanceOut:
-    entity_id = assert_statement_scope(db, filters)
+    scoped = scoped_statement_filters(db, filters)
+    entity_id = scoped.entity_ids[0]
     entity = _entity(db, entity_id)
-    as_of = _as_of_date(filters)
-    scoped = filters.model_copy(
-        update={
-            "entity_ids": [entity_id],
-            "consolidate": False,
-            "as_of_date": as_of,
-            "date_to": as_of,
-            "report_type": "balance_sheet",
-        }
-    )
+    as_of = _as_of_date(scoped)
+    period_start = date(as_of.year, as_of.month, 1)
+    opening_end = period_start - timedelta(days=1)
+    currency = scoped.reporting_currency
     accounts = {a.id: a for a in db.scalars(select(DimAccount).where(DimAccount.is_active.is_(True))).all()}
     mapping = _layout_account_map(db)
-    cashbook = use_cashbook_presentation(db, scoped)
-    bs_bundle = aggregate_account_bundle(db, scoped, balance_sheet=True)
-    ytd = _ytd_filters(scoped)
-    pnl_bundle = aggregate_account_bundle(db, ytd, balance_sheet=False)
-    rows: list[TrialBalanceRow] = []
 
+    common = dict(
+        scenario_id=scoped.scenario_id,
+        entity_ids=[entity_id],
+        department_ids=scoped.department_ids,
+        reporting_currency=currency,
+        rate_type="closing",
+        ic_predicate=None,
+    )
+    opening = aggregate_ledger(
+        db, date_from=date(2000, 1, 1), date_to=opening_end, include_openings=True, **common
+    )
+    period = aggregate_ledger(
+        db, date_from=period_start, date_to=as_of, include_openings=False, **common
+    )
+    closing = aggregate_ledger(
+        db, date_from=date(2000, 1, 1), date_to=as_of, include_openings=True, **common
+    )
+
+    rows: list[TrialBalanceRow] = []
     for acct in sorted(accounts.values(), key=lambda a: (a.sort_order, a.code)):
-        if acct.statement == "income_statement" or acct.account_type in ("revenue", "expense"):
-            raw = pnl_bundle.totals.get(acct.id, Decimal("0"))
-            amount = _signed_amount(acct, raw, "income_statement")
-        else:
-            raw = bs_bundle.totals.get(acct.id, Decimal("0"))
-            if cashbook and acct.code == "1000":
-                amount = raw  # due-to-other-banks, bank sign
-            else:
-                amount = _signed_amount(acct, raw, "balance_sheet")
+        o = opening.by_account.get(acct.id)
+        p = period.by_account.get(acct.id)
+        c = closing.by_account.get(acct.id)
+        od, oc = (o.debit if o else Decimal("0")), (o.credit if o else Decimal("0"))
+        pd, pc = (p.debit if p else Decimal("0")), (p.credit if p else Decimal("0"))
+        cd, cc = (c.debit if c else Decimal("0")), (c.credit if c else Decimal("0"))
+        net = cd - cc
         mapped = acct.id in mapping
         line_code, line_label = mapping.get(acct.id, (None, None))
-        if cashbook and acct.code == "1000":
-            line_code, line_label = CASH_XFER_CODE, "Due to / from other bank accounts"
-            mapped = True
-        if abs(amount) <= NIL_TOLERANCE and abs(raw) <= NIL_TOLERANCE and not mapped:
+        if (
+            abs(od) <= NIL_TOLERANCE
+            and abs(oc) <= NIL_TOLERANCE
+            and abs(pd) <= NIL_TOLERANCE
+            and abs(pc) <= NIL_TOLERANCE
+            and abs(cd) <= NIL_TOLERANCE
+            and abs(cc) <= NIL_TOLERANCE
+            and not mapped
+        ):
             continue
-        debit, credit = _dr_cr(acct, amount)
+        exception = None if mapped else "Unmapped — will not hit P&L or BS"
+        if acct.code == SUSPENSE_CODE and (abs(cd) > NIL_TOLERANCE or abs(cc) > NIL_TOLERANCE):
+            exception = "Uncategorized activity — recode before issuing the pack"
         rows.append(
             TrialBalanceRow(
                 account_id=acct.id,
@@ -371,77 +389,33 @@ def build_trial_balance(db: Session, filters: ReportFilter) -> TrialBalanceOut:
                 line_code=line_code,
                 line_label=line_label,
                 mapped=mapped,
-                debit=debit,
-                credit=credit,
-                amount=amount,
-                exception=None if mapped else "Unmapped — will not hit P&L or BS",
+                opening_debit=od,
+                opening_credit=oc,
+                period_debit=pd,
+                period_credit=pc,
+                debit=cd,
+                credit=cc,
+                amount=net,
+                exception=exception,
             )
-        )
-
-    if cashbook:
-        cash, _, _ = cashbook_book_cash(db, scoped)
-        rows.insert(
-            0,
-            TrialBalanceRow(
-                account_code="CASH",
-                account_name="Cash (bank book)",
-                account_type="asset",
-                statement="balance_sheet",
-                line_code=CASH_LINE_CODE,
-                line_label="Cash",
-                mapped=True,
-                debit=cash if cash >= 0 else Decimal("0"),
-                credit=Decimal("0") if cash >= 0 else -cash,
-                amount=cash,
-                synthetic=True,
-            ),
-        )
-        accounts_pnl = {a.id: a for a in accounts.values()}
-        ce = _pnl_net_income(db, scoped, accounts_pnl)
-        rows.append(
-            TrialBalanceRow(
-                account_code="CE",
-                account_name="Current earnings (fiscal YTD)",
-                account_type="equity",
-                statement="balance_sheet",
-                line_code=CURRENT_EARNINGS_CODE,
-                line_label="Current earnings",
-                mapped=True,
-                debit=Decimal("0") if ce >= 0 else -ce,
-                credit=ce if ce >= 0 else Decimal("0"),
-                amount=ce,
-                synthetic=True,
-            ),
         )
 
     uncat_n, uncat_amt = _uncategorized(db, scoped, entity_id)
-    if uncat_n:
-        rows.append(
-            TrialBalanceRow(
-                account_code="UNCAT",
-                account_name="Uncategorized transactions",
-                account_type="asset",
-                statement=None,
-                mapped=False,
-                debit=uncat_amt if uncat_amt >= 0 else Decimal("0"),
-                credit=Decimal("0") if uncat_amt >= 0 else -uncat_amt,
-                amount=uncat_amt,
-                synthetic=True,
-                exception=f"{uncat_n} uncategorized item(s) — statement will not tie",
-            )
-        )
-
-    unmapped = [r for r in rows if not r.mapped and not r.synthetic]
+    unmapped = [r for r in rows if not r.mapped]
     total_debit = sum((r.debit for r in rows), Decimal("0"))
     total_credit = sum((r.credit for r in rows), Decimal("0"))
+    difference = total_debit - total_credit
+    is_balanced = abs(difference) < Decimal("0.02")
     basis, notes, _disc = build_reporting_notes(db, scoped)
-    complete = uncat_n == 0 and len(unmapped) == 0
+    complete = uncat_n == 0 and len(unmapped) == 0 and is_balanced
     return TrialBalanceOut(
         title="Trial Balance",
-        cover_title=f"{entity.name} · Trial Balance · As at {as_of.day} {as_of.strftime('%B %Y')} · {filters.reporting_currency}",
+        cover_title=(
+            f"{entity.name} · Trial Balance · As at {as_of.day} {as_of.strftime('%B %Y')} · {currency}"
+        ),
         entity_name=entity.name,
         period_label=f"As at {as_of.day} {as_of.strftime('%B %Y')}",
-        currency=filters.reporting_currency,
+        currency=currency,
         as_of_date=as_of,
         accounting_basis=basis,
         rows=rows,
@@ -451,6 +425,8 @@ def build_trial_balance(db: Session, filters: ReportFilter) -> TrialBalanceOut:
         uncategorized_count=uncat_n,
         uncategorized_amount=uncat_amt,
         is_complete=complete,
+        is_balanced=is_balanced,
+        balance_difference=difference,
         notes=notes,
         generated_at=datetime.utcnow().isoformat() + "Z",
     )
@@ -501,7 +477,7 @@ def build_statement_diagnostics(db: Session, filters: ReportFilter) -> Statement
             StatementPlug(
                 key="uncategorized",
                 title=f"{uncat_n} uncategorized transaction(s)",
-                detail="Items without a GL account sit in the bank book but not on the statements.",
+                detail="Items without a GL account post to 9999 suspense — recode before issuing the pack.",
                 amount=uncat_amt,
                 href=href_work,
                 blocking=True,
@@ -517,16 +493,6 @@ def build_statement_diagnostics(db: Session, filters: ReportFilter) -> Statement
                 blocking=True,
             )
         )
-    if journals:
-        plugs.append(
-            StatementPlug(
-                key="cashbook-journals",
-                title=f"{journals} journal(s) on a cashbook entity",
-                detail="Accruals on WBC CAN are not in the bank book, so the cashbook identity will not tie until they are.",
-                href=href_bs,
-                blocking=True,
-            )
-        )
     if bs.fx_missing:
         plugs.append(
             StatementPlug(
@@ -538,13 +504,7 @@ def build_statement_diagnostics(db: Session, filters: ReportFilter) -> Statement
             )
         )
 
-    can_print = (
-        bool(bs.is_balanced)
-        and uncat_n == 0
-        and not unmapped_codes
-        and journals == 0
-        and not bs.fx_missing
-    )
+    can_print = bool(bs.is_balanced) and uncat_n == 0 and not unmapped_codes and not bs.fx_missing
     return StatementDiagnostics(
         entity_id=entity_id,
         entity_code=entity.code,

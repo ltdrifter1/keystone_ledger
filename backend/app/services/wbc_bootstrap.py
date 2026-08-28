@@ -117,6 +117,7 @@ def bootstrap_wbc_dimensions(db: Session) -> dict:
             country=ent_cfg["country"],
             functional_currency=ent_cfg["functional_currency"],
             consolidation_method=ent_cfg.get("consolidation_method") or "none",
+            fiscal_year_end_month=int(ent_cfg.get("fiscal_year_end_month") or 7),
             parent_entity_id=None,
         )
         db.add(ent)

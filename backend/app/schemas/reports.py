@@ -147,7 +147,11 @@ class TrialBalanceRow(BaseModel):
     line_code: Optional[str] = None
     line_label: Optional[str] = None
     mapped: bool = False
-    debit: Decimal = Decimal("0")
+    opening_debit: Decimal = Decimal("0")
+    opening_credit: Decimal = Decimal("0")
+    period_debit: Decimal = Decimal("0")
+    period_credit: Decimal = Decimal("0")
+    debit: Decimal = Decimal("0")  # closing
     credit: Decimal = Decimal("0")
     amount: Decimal = Decimal("0")
     synthetic: bool = False
@@ -169,6 +173,8 @@ class TrialBalanceOut(BaseModel):
     uncategorized_count: int = 0
     uncategorized_amount: Decimal = Decimal("0")
     is_complete: bool = False
+    is_balanced: bool = False
+    balance_difference: Optional[Decimal] = None
     notes: list[ReportingNote] = Field(default_factory=list)
     generated_at: str
 

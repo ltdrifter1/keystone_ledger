@@ -50,6 +50,8 @@ export function TrialBalancePage() {
     void run()
   }, [run])
 
+  const nz = (v?: string | number | null) => Number(v || 0) !== 0
+
   return (
     <div className="report-workspace">
       <div className="page-header statement-cover-header">
@@ -60,12 +62,20 @@ export function TrialBalancePage() {
               `${entityName ?? entityCode ?? 'Entity'} · Trial Balance · ${tb?.period_label ?? ''} · ${entityCurrency || 'CAD'}`}
           </h1>
           <p className="print-hide">
-            Mapped CoA before statements. Unmapped and uncategorized rows block a printable pack.
+            Double-entry trial balance. Uncategorized bank lines post to 9999 suspense. Debits must equal credits.
           </p>
         </div>
       </div>
 
       {error && <div className="error">{error}</div>}
+
+      {tb && tb.is_balanced != null && (
+        <div className={`banner ${tb.is_balanced ? 'ok' : 'warn'}`}>
+          {tb.is_balanced
+            ? `In balance · Debits = Credits (${tb.currency})`
+            : `Out of balance by ${money(tb.balance_difference, tb.currency)}`}
+        </div>
+      )}
 
       {tb && !tb.is_complete && (
         <div className="banner warn">
@@ -74,7 +84,7 @@ export function TrialBalancePage() {
           {tb.uncategorized_count ? ` · ${tb.uncategorized_count} uncategorized item(s)` : ''}
         </div>
       )}
-      {tb?.is_complete && <div className="banner ok">Mapped and complete — every row hits P&amp;L or BS</div>}
+      {tb?.is_complete && <div className="banner ok">Mapped, balanced, and complete</div>}
 
       <section className="panel statement-panel">
         <div className="panel-header print-hide">
@@ -87,8 +97,12 @@ export function TrialBalancePage() {
               <tr>
                 <th>Code</th>
                 <th>Account</th>
-                <th className="num">Debit</th>
-                <th className="num">Credit</th>
+                <th className="num">Opening Dr</th>
+                <th className="num">Opening Cr</th>
+                <th className="num">Period Dr</th>
+                <th className="num">Period Cr</th>
+                <th className="num">Closing Dr</th>
+                <th className="num">Closing Cr</th>
                 <th>Mapped line</th>
                 <th>Exception</th>
               </tr>
@@ -97,12 +111,13 @@ export function TrialBalancePage() {
               {tb?.rows.map((row) => (
                 <tr key={`${row.account_code}-${row.account_id ?? 's'}`} className={row.exception ? 'tb-exception' : ''}>
                   <td>{row.account_code}</td>
-                  <td>
-                    {row.account_name}
-                    {row.synthetic ? <span className="hint"> · book</span> : ''}
-                  </td>
-                  <td className="num">{Number(row.debit) ? money(row.debit) : '—'}</td>
-                  <td className="num">{Number(row.credit) ? money(row.credit) : '—'}</td>
+                  <td>{row.account_name}</td>
+                  <td className="num">{nz(row.opening_debit) ? money(row.opening_debit) : '—'}</td>
+                  <td className="num">{nz(row.opening_credit) ? money(row.opening_credit) : '—'}</td>
+                  <td className="num">{nz(row.period_debit) ? money(row.period_debit) : '—'}</td>
+                  <td className="num">{nz(row.period_credit) ? money(row.period_credit) : '—'}</td>
+                  <td className="num">{nz(row.debit) ? money(row.debit) : '—'}</td>
+                  <td className="num">{nz(row.credit) ? money(row.credit) : '—'}</td>
                   <td>{row.line_label || '—'}</td>
                   <td className="hint">{row.exception || ''}</td>
                 </tr>
@@ -111,6 +126,7 @@ export function TrialBalancePage() {
                 <tr className="total">
                   <td />
                   <td>Total</td>
+                  <td colSpan={4} />
                   <td className="num">{money(tb.total_debit, tb.currency)}</td>
                   <td className="num">{money(tb.total_credit, tb.currency)}</td>
                   <td colSpan={2} />

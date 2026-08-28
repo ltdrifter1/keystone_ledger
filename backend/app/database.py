@@ -80,6 +80,11 @@ def _ensure_sqlite_columns() -> None:
         rule_cols = {
             row[1] for row in conn.execute(text("PRAGMA table_info(categorization_rules)")).fetchall()
         }
+        ent_cols = {row[1] for row in conn.execute(text("PRAGMA table_info(dim_entity)")).fetchall()}
+        if ent_cols and "fiscal_year_end_month" not in ent_cols:
+            conn.execute(text("ALTER TABLE dim_entity ADD COLUMN fiscal_year_end_month INTEGER DEFAULT 7"))
+            conn.execute(text("UPDATE dim_entity SET fiscal_year_end_month = 7 WHERE fiscal_year_end_month IS NULL"))
+
         if rule_cols and "rule_kind" not in rule_cols:
             conn.execute(
                 text("ALTER TABLE categorization_rules ADD COLUMN rule_kind VARCHAR(32) DEFAULT 'gl'")

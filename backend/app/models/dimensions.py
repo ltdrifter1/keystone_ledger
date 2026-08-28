@@ -33,6 +33,7 @@ class DimEntity(Base):
     parent_entity_id: Mapped[Optional[int]] = mapped_column(ForeignKey("dim_entity.id"), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     consolidation_method: Mapped[str] = mapped_column(String(32), default="full")  # full | equity | none
+    fiscal_year_end_month: Mapped[int] = mapped_column(Integer, default=7)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     parent: Mapped[Optional["DimEntity"]] = relationship(remote_side=[id])
